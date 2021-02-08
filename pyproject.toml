@@ -1,0 +1,32 @@
+[tool.poetry]
+name = "asyncmy"
+version = "0.1.0"
+description = "A fast asyncio MySQL driver"
+authors = ["long2ice <long2ice@gmail.com>"]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/long2ice/asyncmy"
+repository = "https://github.com/long2ice/asyncmy.git"
+documentation = "https://github.com/long2ice/asyncmy"
+keywords = ["driver", "asyncio", "mysql"]
+packages = [
+    { include = "asyncmy" }
+]
+include = ["CHANGELOG.md", "LICENSE", "README.md"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+
+[tool.poetry.dev-dependencies]
+flake8 = "*"
+isort = "*"
+black = "^20.8b1"
+pytest = "*"
+pytest-xdist = "*"
+pytest-asyncio = "*"
+bandit = "*"
+pytest-mock = "*"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
