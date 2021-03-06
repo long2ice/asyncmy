@@ -2,8 +2,9 @@ import asyncio
 import time
 
 import aiomysql
-import pymysql
 import MySQLdb
+import pymysql
+
 from asyncmy.connections import Connection
 
 
@@ -11,17 +12,17 @@ async def benchmark_asyncmy():
     t = time.time()
     connection = Connection(user="root", password="123456")
     await connection.connect()
-    with connection.cursor() as cursor:
+    async with connection.cursor() as cursor:
         for _ in range(100000):
             await cursor.execute("SELECT 1,2,3,4,5")
             res = cursor.fetchall()
             assert len(res) == 1
             assert res[0] == (1, 2, 3, 4, 5)
-    print('asyncmy', time.time() - t)
+    print("asyncmy", time.time() - t)
 
 
 async def benchmark_aiomysql():
-    pool = await aiomysql.create_pool(user='root', password='123456')
+    pool = await aiomysql.create_pool(user="root", password="123456")
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             t = time.time()
@@ -34,7 +35,7 @@ async def benchmark_aiomysql():
 
 
 def benchmark_mysqlclient():
-    conn = MySQLdb.connect(user='root', host='localhost', password='123456')
+    conn = MySQLdb.connect(user="root", host="localhost", password="123456")
     cur = conn.cursor()
     t = time.time()
     for _ in range(100000):
@@ -42,11 +43,11 @@ def benchmark_mysqlclient():
         res = cur.fetchall()
         assert len(res) == 1
         assert res[0] == (1, 2, 3, 4, 5)
-    print('mysqlclient', time.time() - t)
+    print("mysqlclient", time.time() - t)
 
 
 def benchmark_pymysql():
-    conn = pymysql.connect(user='root', host='localhost', password='123456')
+    conn = pymysql.connect(user="root", host="localhost", password="123456")
     cur = conn.cursor()
     t = time.time()
     for _ in range(100000):
@@ -57,8 +58,9 @@ def benchmark_pymysql():
     print("pymysql", time.time() - t)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import uvloop
+
     uvloop.install()
     loop = asyncio.get_event_loop()
     benchmark_pymysql()

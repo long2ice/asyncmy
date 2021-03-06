@@ -18,7 +18,7 @@ check: deps
 	bandit -x tests -r $(checkfiles)
 
 test: deps
-	$(py_warn) py.test
+	$(py_warn) pytest
 
 build: deps
 	@poetry build

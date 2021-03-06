@@ -5,15 +5,13 @@
 import asyncio
 import errno
 import os
-import socket
 import struct
 import sys
-import traceback
 import warnings
 from asyncio import StreamReader, StreamWriter
 from typing import Optional, Type
 
-from . import __VERSION__, auth, converters, errors
+from . import auth, converters, errors
 from .charset import charset_by_id, charset_by_name
 from .constants import CLIENT, COMMAND, CR, FIELD_TYPE, SERVER_STATUS
 from .cursors import Cursor
@@ -25,6 +23,7 @@ from .protocol import (
     MysqlPacket,
     OKPacketWrapper,
 )
+from .version import __VERSION__
 
 try:
     import ssl
@@ -42,8 +41,6 @@ try:
 except (ImportError, KeyError):
     # KeyError occurs when there's no entry in OS database for a current user.
     DEFAULT_USER = None
-
-DEBUG = False
 
 TEXT_TYPES = {
     FIELD_TYPE.BIT,
@@ -120,7 +117,7 @@ class Connection:
         Whether or not to default to unicode strings.
         This option defaults to true.
     :param client_flag: Custom flags to send to MySQL. Find potential values in constants.CLIENT.
-    :param cursorclass: Custom cursor class to use.
+    :param cursor_cls: Custom cursor class to use.
     :param init_command: Initial SQL statement to run when connection is established.
     :param connect_timeout: The timeout for connecting to the database in seconds.
         (default: 10, min: 1, max: 31536000)
@@ -169,7 +166,7 @@ class Connection:
         conv=None,
         use_unicode=True,
         client_flag=0,
-        cursorclass=Cursor,
+        cursor_cls=Cursor,
         init_command=None,
         connect_timeout=10,
         read_default_group=None,
@@ -303,7 +300,7 @@ class Connection:
 
         self.client_flag = client_flag
 
-        self.cursorclass = cursorclass
+        self._cursor_cls = cursor_cls
 
         self._result = None
         self._affected_rows = 0
@@ -335,15 +332,8 @@ class Connection:
             self._connect_attrs["program_name"] = program_name
 
         self._connected = False
-        self.reader: Optional[StreamReader] = None
-        self.writer: Optional[StreamWriter] = None
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc_info):
-        del exc_info
-        self.close()
+        self._reader: Optional[StreamReader] = None
+        self._writer: Optional[StreamWriter] = None
 
     def _create_ssl_ctx(self, sslp):
         if isinstance(sslp, ssl.SSLContext):
@@ -388,7 +378,6 @@ class Connection:
         """
         if not self._connected:
             raise errors.Error("Already closed")
-        self._connected = False
         send_data = struct.pack("<iB", 1, COMMAND.COM_QUIT)
         try:
             await self._write_bytes(send_data)
@@ -403,10 +392,11 @@ class Connection:
     async def _force_close(self):
         """Close connection without QUIT message."""
         if self._connected:
-            self.writer.close()
-            await self.writer.wait_closed()
-        self.reader = None
-        self.writer = None
+            self._writer.close()
+            await self._writer.wait_closed()
+        self._reader = None
+        self._writer = None
+        self._connected = False
 
     async def autocommit(self, value):
         self.autocommit_mode = bool(value)
@@ -504,7 +494,7 @@ class Connection:
             return "'%s'" % (s.replace(b"'", b"''").decode("ascii", "surrogateescape"),)
         return converters.escape_bytes(s)
 
-    def cursor(self, cursor=None):
+    def cursor(self, cursor: Optional[Type[Cursor]] = None):
         """
         Create a new cursor to execute queries with.
 
@@ -513,7 +503,7 @@ class Connection:
         """
         if cursor:
             return cursor(self)
-        return self.cursorclass(self)
+        return self._cursor_cls(self)
 
     # The following methods are INTERNAL USE ONLY (called from Cursor)
     async def query(self, sql, unbuffered=False):
@@ -571,11 +561,11 @@ class Connection:
 
     async def connect(self):
         if self._connected:
-            return self.reader, self.writer
+            return self._reader, self._writer
         try:
 
             if self.unix_socket:
-                self.reader, self.writer = await asyncio.open_unix_connection(self.unix_socket)
+                self._reader, self._writer = await asyncio.open_unix_connection(self.unix_socket)
                 self.host_info = "Localhost via UNIX socket"
                 self._secure = True
             else:
@@ -584,7 +574,7 @@ class Connection:
                     kwargs["source_address"] = (self.bind_address, 0)
                 while True:
                     try:
-                        self.reader, self.writer = await asyncio.open_connection(
+                        self._reader, self._writer = await asyncio.open_connection(
                             self.host,
                             self.port,
                             **kwargs,
@@ -597,9 +587,11 @@ class Connection:
                 self.host_info = "socket %s:%d" % (self.host, self.port)
 
             self._next_seq_id = 0
-            self._connected = True
+
             await self._get_server_information()
             await self._request_authentication()
+
+            self._connected = True
 
             if self.sql_mode is not None:
                 c = self.cursor()
@@ -614,21 +606,14 @@ class Connection:
             if self.autocommit_mode is not None:
                 await self.autocommit(self.autocommit_mode)
         except BaseException as e:
-            if isinstance(e, (OSError, IOError, socket.error)):
-                exc = errors.OperationalError(
+            if isinstance(e, (OSError, IOError)):
+                raise errors.OperationalError(
                     2003, "Can't connect to MySQL server on %r (%s)" % (self.host, e)
-                )
-                # Keep original exception and traceback to investigate error.
-                exc.original_exception = e
-                exc.traceback = traceback.format_exc()
-                if DEBUG:
-                    print(exc.traceback)
-                raise exc
-
+                ) from e
             # If e is neither DatabaseError or IOError, It's a bug.
             # But raising AssertionError hides original error.
             # So just reraise it.
-            raise
+            raise e
 
     async def write_packet(self, payload):
         """Writes an entire "mysql packet" in its entirety to the network
@@ -641,7 +626,8 @@ class Connection:
         self._next_seq_id = (self._next_seq_id + 1) % 256
 
     async def read_packet(self, packet_type: Type[MysqlPacket] = MysqlPacket) -> MysqlPacket:
-        """Read an entire "mysql packet" in its entirety from the network
+        """
+        Read an entire "mysql packet" in its entirety from the network
         and return a MysqlPacket type that represents the results.
 
         :raise OperationalError: If the connection to the MySQL server is lost.
@@ -684,7 +670,7 @@ class Connection:
     async def _read_bytes(self, num_bytes: int):
         while True:
             try:
-                data = await self.reader.read(num_bytes)
+                data = await self._reader.readexactly(num_bytes)
                 if len(data) < num_bytes:
                     await self._force_close()
                     raise errors.OperationalError(
@@ -699,14 +685,14 @@ class Connection:
                     CR.CR_SERVER_LOST,
                     "Lost connection to MySQL server during query (%s)" % (e,),
                 )
-            except BaseException:
-                # Don't convert unknown exception to MySQLError.
+            except asyncio.IncompleteReadError as e:
                 await self._force_close()
-                raise
+                msg = "Lost connection to MySQL server during query"
+                raise errors.OperationalError(CR.CR_SERVER_LOST, msg) from e
 
     async def _write_bytes(self, data: bytes):
         try:
-            self.writer.write(data)
+            self._writer.write(data)
         except IOError as e:
             await self._force_close()
             raise errors.OperationalError(
@@ -854,15 +840,13 @@ class Connection:
             auth_packet.read_uint8()  # 0xfe packet identifier
             plugin_name = auth_packet.read_string()
             if self.server_capabilities & CLIENT.PLUGIN_AUTH and plugin_name is not None:
-                auth_packet = self._process_auth(plugin_name, auth_packet)
+                auth_packet = await self._process_auth(plugin_name, auth_packet)
             else:
                 # send legacy handshake
                 data = auth.scramble_old_password(self.password, self.salt) + b"\0"
                 await self.write_packet(data)
-                auth_packet = self.read_packet()
+                auth_packet = await self.read_packet()
         elif auth_packet.is_extra_auth_data():
-            if DEBUG:
-                print("received extra data")
             # https://dev.mysql.com/doc/internals/en/successful-authentication.html
             if self._auth_plugin_name == "caching_sha2_password":
                 auth_packet = auth.caching_sha2_password_auth(self, auth_packet)
@@ -872,6 +856,7 @@ class Connection:
                 raise errors.OperationalError(
                     "Received extra packet for auth method %r", self._auth_plugin_name
                 )
+        return auth_packet
 
     async def _process_auth(self, plugin_name, auth_packet):
         handler = self._get_auth_plugin_handler(plugin_name)
@@ -1206,8 +1191,6 @@ class MySQLResult:
             if data is not None:
                 if encoding is not None:
                     data = data.decode(encoding)
-                if DEBUG:
-                    print("DEBUG: DATA = ", data)
                 if converter is not None:
                     data = converter(data)
             row.append(data)
@@ -1281,3 +1264,25 @@ class LoadLocalFile:
         finally:
             # send the empty packet to signify we are done sending data
             await conn.write_packet(b"")
+
+
+async def connect(
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    cursor_cls=Cursor,
+    **kwargs,
+) -> Connection:
+    conn = Connection(
+        user=user,
+        password=password,
+        host=host,
+        port=port,
+        database=database,
+        cursor_cls=cursor_cls,
+        **kwargs,
+    )
+    await conn.connect()
+    return conn

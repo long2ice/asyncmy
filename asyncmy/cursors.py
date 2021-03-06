@@ -1,4 +1,5 @@
 import re
+import warnings
 
 from . import errors
 
@@ -40,7 +41,7 @@ class Cursor:
         self._result = None
         self._rows = None
 
-    def close(self):
+    async def close(self):
         """
         Closing a cursor just exhausts all remaining data.
         """
@@ -48,17 +49,26 @@ class Cursor:
         if conn is None:
             return
         try:
-            while self.nextset():
+            while await self.nextset():
                 pass
         finally:
             self.connection = None
 
-    def __enter__(self):
+    def __aiter__(self):
         return self
 
-    def __exit__(self, *exc_info):
-        del exc_info
-        self.close()
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+    async def __anext__(self):
+        ret = await self.fetchone()
+        if ret is not None:
+            return ret
+        else:
+            raise StopAsyncIteration  # noqa
 
     def _get_db(self):
         if not self.connection:
@@ -78,7 +88,7 @@ class Cursor:
     def setoutputsizes(self, *args):
         """Does nothing, required by DB API."""
 
-    def _nextset(self, unbuffered=False):
+    async def _nextset(self, unbuffered=False):
         """Get the next query set."""
         conn = self._get_db()
         current_result = self._result
@@ -88,12 +98,12 @@ class Cursor:
             return None
         self._result = None
         self._clear_result()
-        conn.next_result(unbuffered=unbuffered)
-        self._do_get_result()
+        await conn.next_result(unbuffered=unbuffered)
+        await self._do_get_result()
         return True
 
-    def nextset(self):
-        return self._nextset(False)
+    async def nextset(self):
+        return await self._nextset(False)
 
     def _ensure_bytes(self, x, encoding=None):
         if isinstance(x, str):
@@ -150,7 +160,7 @@ class Cursor:
         If args is a list or tuple, %s can be used as a placeholder in the query.
         If args is a dict, %(name)s can be used as a placeholder in the query.
         """
-        while self.nextset():
+        while await self.nextset():
             pass
 
         query = self.mogrify(query, args)
@@ -224,7 +234,7 @@ class Cursor:
         self.rowcount = rows
         return rows
 
-    def callproc(self, procname, args=()):
+    async def callproc(self, procname, args=()):
         """Execute stored procedure procname with args.
 
         :param procname: Name of procedure to execute on server.
@@ -257,17 +267,17 @@ class Cursor:
         conn = self._get_db()
         if args:
             fmt = f"@_{procname}_%d=%s"
-            self._query(
+            await self._query(
                 "SET %s"
                 % ",".join(fmt % (index, conn.escape(arg)) for index, arg in enumerate(args))
             )
-            self.nextset()
+            await self.nextset()
 
         q = "CALL %s(%s)" % (
             procname,
             ",".join(["@_%s_%d" % (procname, i) for i in range(len(args))]),
         )
-        self._query(q)
+        await self._query(q)
         self._executed = q
         return args
 
@@ -319,7 +329,7 @@ class Cursor:
         conn = self._get_db()
         self._clear_result()
         await conn.query(q)
-        self._do_get_result()
+        await self._do_get_result()
         return self.rowcount
 
     def _clear_result(self):
@@ -331,18 +341,25 @@ class Cursor:
         self.lastrowid = None
         self._rows = None
 
-    def _do_get_result(self):
+    async def _do_get_result(self):
         conn = self._get_db()
-
         self._result = result = conn._result
-
         self.rowcount = result.affected_rows
         self.description = result.description
         self.lastrowid = result.insert_id
         self._rows = result.rows
+        if result.warning_count > 0:
+            await self._show_warnings(conn)
 
-    def __iter__(self):
-        return iter(self.fetchone, None)
+    async def _show_warnings(self, conn):
+        if self._result and self._result.has_next:
+            return
+        ws = await conn.show_warnings()
+        if ws is None:
+            return
+        for w in ws:
+            msg = w[-1]
+            warnings.warn(str(msg), Warning, 4)
 
     Warning = errors.Warning
     Error = errors.Error
@@ -360,8 +377,8 @@ class DictCursorMixin:
     # You can override this to use OrderedDict or other dict-like types.
     dict_type = dict
 
-    def _do_get_result(self):
-        super(DictCursorMixin, self)._do_get_result()
+    async def _do_get_result(self):
+        await super(DictCursorMixin, self)._do_get_result()
         fields = []
         if self.description:
             for f in self._result.fields:
@@ -403,7 +420,7 @@ class SSCursor(Cursor):
     def _conv_row(self, row):
         return row
 
-    def close(self):
+    async def close(self):
         conn = self.connection
         if conn is None:
             return
@@ -412,56 +429,49 @@ class SSCursor(Cursor):
             self._result._finish_unbuffered_query()
 
         try:
-            while self.nextset():
+            while await self.nextset():
                 pass
         finally:
             self.connection = None
 
-    __del__ = close
-
-    def _query(self, q):
+    async def _query(self, q):
         conn = self._get_db()
         self._clear_result()
-        conn.query(q, unbuffered=True)
-        self._do_get_result()
+        await conn.query(q, unbuffered=True)
+        await self._do_get_result()
         return self.rowcount
 
-    def nextset(self):
-        return self._nextset(unbuffered=True)
+    async def nextset(self):
+        return await self._nextset(unbuffered=True)
 
-    def read_next(self):
+    async def read_next(self):
         """Read next row."""
-        return self._conv_row(self._result._read_rowdata_packet_unbuffered())
+        return self._conv_row(await self._result._read_rowdata_packet_unbuffered())
 
-    def fetchone(self):
+    async def fetchone(self):
         """Fetch next row."""
         self._check_executed()
-        row = self.read_next()
+        row = await self.read_next()
         if row is None:
             return None
         self.rownumber += 1
         return row
 
-    def fetchall(self):
+    async def fetchall(self):
         """
         Fetch all, as per MySQLdb. Pretty useless for large queries, as
         it is buffered. See fetchall_unbuffered(), if you want an unbuffered
         generator version of this method.
         """
-        return list(self.fetchall_unbuffered())
+        rows = []
+        while True:
+            row = await self.fetchone()
+            if row is None:
+                break
+            rows.append(row)
+        return rows
 
-    def fetchall_unbuffered(self):
-        """
-        Fetch all, implemented as a generator, which isn't to standard,
-        however, it doesn't make sense to return everything in a list, as that
-        would use ridiculous memory for large result sets.
-        """
-        return iter(self.fetchone, None)
-
-    def __iter__(self):
-        return self.fetchall_unbuffered()
-
-    def fetchmany(self, size=None):
+    async def fetchmany(self, size=None):
         """Fetch many."""
         self._check_executed()
         if size is None:
@@ -469,14 +479,14 @@ class SSCursor(Cursor):
 
         rows = []
         for i in range(size):
-            row = self.read_next()
+            row = await self.read_next()
             if row is None:
                 break
             rows.append(row)
             self.rownumber += 1
         return rows
 
-    def scroll(self, value, mode="relative"):
+    async def scroll(self, value, mode="relative"):
         self._check_executed()
 
         if mode == "relative":
@@ -484,7 +494,7 @@ class SSCursor(Cursor):
                 raise errors.NotSupportedError("Backwards scrolling not supported by this cursor")
 
             for _ in range(value):
-                self.read_next()
+                await self.read_next()
             self.rownumber += value
         elif mode == "absolute":
             if value < self.rownumber:
@@ -492,7 +502,7 @@ class SSCursor(Cursor):
 
             end = value - self.rownumber
             for _ in range(end):
-                self.read_next()
+                await self.read_next()
             self.rownumber = value
         else:
             raise errors.ProgrammingError("unknown scroll mode %s" % mode)

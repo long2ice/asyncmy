@@ -1,1 +1,2 @@
-__VERSION__ = "0.1.0"
+from .connections import connect  # noqa:F401
+from .pool import create_pool  # noqa:F401

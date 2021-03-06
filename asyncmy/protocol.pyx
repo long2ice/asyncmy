@@ -4,6 +4,7 @@ from . import errors
 from .charset import MB_LENGTH
 from .constants import FIELD_TYPE, SERVER_STATUS
 
+
 cdef int NULL_COLUMN = 251
 cdef int UNSIGNED_CHAR_COLUMN = 251
 cdef int UNSIGNED_SHORT_COLUMN = 252
@@ -18,7 +19,7 @@ cdef class MysqlPacket:
     cdef public bytes _data
     cdef public int _position
 
-    def __init__(self, bytes data,str encoding):
+    def __init__(self,bytes data,str encoding):
         self._position = 0
         self._data = data
 
