@@ -11,7 +11,7 @@ import sys
 import traceback
 import warnings
 from asyncio import StreamReader, StreamWriter
-from typing import Optional, Tuple, Type
+from typing import Optional, Type
 
 from . import __VERSION__, auth, converters, errors
 from .charset import charset_by_id, charset_by_name
@@ -176,7 +176,6 @@ class Connection:
         autocommit=False,
         local_infile=False,
         max_allowed_packet=16 * 1024 * 1024,
-        defer_connect=False,
         auth_plugin_map=None,
         read_timeout=None,
         write_timeout=None,
@@ -409,8 +408,6 @@ class Connection:
         self.reader = None
         self.writer = None
 
-    __del__ = _force_close
-
     async def autocommit(self, value):
         self.autocommit_mode = bool(value)
         current = self.get_autocommit()
@@ -520,16 +517,14 @@ class Connection:
 
     # The following methods are INTERNAL USE ONLY (called from Cursor)
     async def query(self, sql, unbuffered=False):
-        # if DEBUG:
-        #     print("DEBUG: sending query:", sql)
         if isinstance(sql, str):
             sql = sql.encode(self.encoding, "surrogateescape")
         await self._execute_command(COMMAND.COM_QUERY, sql)
-        self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+        self._affected_rows = await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
-    def next_result(self, unbuffered=False):
-        self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+    async def next_result(self, unbuffered=False):
+        self._affected_rows = await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
     def affected_rows(self):
@@ -549,7 +544,7 @@ class Connection:
 
         :raise Error: If the connection is closed and reconnect=False.
         """
-        if self._sock is None:
+        if not self._connected:
             if reconnect:
                 await self.connect()
                 reconnect = False
@@ -672,14 +667,14 @@ class Connection:
             self._next_seq_id = (self._next_seq_id + 1) % 256
 
             recv_data = await self._read_bytes(bytes_to_read)
-            buff += recv_data
+            buff.extend(recv_data)
             # https://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
             if bytes_to_read == 0xFFFFFF:
                 continue
             if bytes_to_read < MAX_PACKET_LEN:
                 break
 
-        packet = packet_type(bytes(buff))
+        packet = packet_type(bytes(buff), encoding=self.encoding)
         if packet.is_error_packet():
             if self._result is not None and self._result.unbuffered_active is True:
                 self._result.unbuffered_active = False
@@ -690,7 +685,12 @@ class Connection:
         while True:
             try:
                 data = await self.reader.read(num_bytes)
-                break
+                if len(data) < num_bytes:
+                    await self._force_close()
+                    raise errors.OperationalError(
+                        CR.CR_SERVER_LOST, "Lost connection to MySQL server during query"
+                    )
+                return data
             except (IOError, OSError) as e:
                 if e.errno == errno.EINTR:
                     continue
@@ -703,12 +703,6 @@ class Connection:
                 # Don't convert unknown exception to MySQLError.
                 await self._force_close()
                 raise
-        if len(data) < num_bytes:
-            await self._force_close()
-            raise errors.OperationalError(
-                CR.CR_SERVER_LOST, "Lost connection to MySQL server during query"
-            )
-        return data
 
     async def _write_bytes(self, data: bytes):
         try:
@@ -725,7 +719,7 @@ class Connection:
             try:
                 result = MySQLResult(self)
                 await result.init_unbuffered_query()
-            except:
+            except Exception:
                 result.unbuffered_active = False
                 result.connection = None
                 raise
@@ -800,9 +794,6 @@ class Connection:
 
         if self.ssl and self.server_capabilities & CLIENT.SSL:
             await self.write_packet(data_init)
-
-            self._sock = self.ssl_ctx.wrap_socket(self._sock, server_hostname=self.host)
-            self._rfile = self._sock.makefile("rb")
             self._secure = True
 
         data = data_init + self.user + b"\0"
@@ -1087,9 +1078,9 @@ class MySQLResult:
             if first_packet.is_ok_packet():
                 self._read_ok_packet(first_packet)
             elif first_packet.is_load_local_packet():
-                self._read_load_local_packet(first_packet)
+                await self._read_load_local_packet(first_packet)
             else:
-                self._read_result_packet(first_packet)
+                await self._read_result_packet(first_packet)
         finally:
             self.connection = None
 
@@ -1106,12 +1097,12 @@ class MySQLResult:
             self.unbuffered_active = False
             self.connection = None
         elif first_packet.is_load_local_packet():
-            self._read_load_local_packet(first_packet)
+            await self._read_load_local_packet(first_packet)
             self.unbuffered_active = False
             self.connection = None
         else:
             self.field_count = first_packet.read_length_encoded_integer()
-            self._get_descriptions()
+            await self._get_descriptions()
 
             # Apparently, MySQLdb picks this number because it's the maximum
             # value of a 64bit unsigned integer. Since we're emulating MySQLdb,
@@ -1135,8 +1126,8 @@ class MySQLResult:
         load_packet = LoadLocalPacketWrapper(first_packet)
         sender = LoadLocalFile(load_packet.filename, self.connection)
         try:
-            sender.send_data()
-        except:
+            await sender.send_data()
+        except Exception:
             await self.connection.read_packet()  # skip ok packet
             raise
 
@@ -1157,10 +1148,10 @@ class MySQLResult:
         self.has_next = wp.has_next
         return True
 
-    def _read_result_packet(self, first_packet):
+    async def _read_result_packet(self, first_packet):
         self.field_count = first_packet.read_length_encoded_integer()
-        self._get_descriptions()
-        self._read_rowdata_packet()
+        await self._get_descriptions()
+        await self._read_rowdata_packet()
 
     async def _read_rowdata_packet_unbuffered(self):
         # Check if in an active query

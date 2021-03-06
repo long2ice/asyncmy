@@ -4,6 +4,11 @@ from . import errors
 from .charset import MB_LENGTH
 from .constants import FIELD_TYPE, SERVER_STATUS
 
+cdef int NULL_COLUMN = 251
+cdef int UNSIGNED_CHAR_COLUMN = 251
+cdef int UNSIGNED_SHORT_COLUMN = 252
+cdef int UNSIGNED_INT24_COLUMN = 253
+cdef int UNSIGNED_INT64_COLUMN = 254
 
 cdef class MysqlPacket:
     """
@@ -13,26 +18,20 @@ cdef class MysqlPacket:
     cdef public bytes _data
     cdef public int _position
 
-    NULL_COLUMN = 251
-    UNSIGNED_CHAR_COLUMN = 251
-    UNSIGNED_SHORT_COLUMN = 252
-    UNSIGNED_INT24_COLUMN = 253
-    UNSIGNED_INT64_COLUMN = 254
-
-    def __init__(self, bytes data):
+    def __init__(self, bytes data,str encoding):
         self._position = 0
         self._data = data
 
     cpdef get_all_data(self):
         return self._data
 
-    cpdef read(self, int size):
+    cdef read(self, int size):
         """
         Read the first 'size' bytes in packet and advance cursor past them.
         :param size: 
         :return: 
         """
-        cdef list result = self._data[self._position: (self._position + size)]
+        cdef bytes result = self._data[self._position: (self._position + size)]
         if len(result) != size:
             error = (
                     "Result length not requested length:\n"
@@ -48,11 +47,11 @@ cdef class MysqlPacket:
 
         (Subsequent read() will return errors.)
         """
-        cdef list result = self._data[self._position:]
+        cdef bytes result = self._data[self._position:]
         self._position = 0
         return result
 
-    cpdef advance(self, int length):
+    cdef advance(self, int length):
         """
         Advance the cursor in data buffer 'length' bytes.
         """
@@ -73,7 +72,8 @@ cdef class MysqlPacket:
         self._position = position
 
     cpdef get_bytes(self, int position, int length=1):
-        """Get 'length' bytes starting at 'position'.
+        """
+        Get 'length' bytes starting at 'position'.
 
         Position is start of payload (first four packet header bytes are not
         included) starting at index '0'.
@@ -84,27 +84,27 @@ cdef class MysqlPacket:
         return self._data[position: (position + length)]
 
     cpdef read_uint8(self):
-        result = self._data[self._position]
+        cdef int result = self._data[self._position]
         self._position += 1
         return result
 
     cpdef read_uint16(self):
-        result = struct.unpack_from("<H", self._data, self._position)[0]
+        cdef int result = struct.unpack_from("<H", self._data, self._position)[0]
         self._position += 2
         return result
 
     cpdef read_uint24(self):
-        cdef int low, high = struct.unpack_from("<HB", self._data, self._position)
+        cdef list result = struct.unpack_from("<HB", self._data, self._position)
         self._position += 3
-        return low + (high << 16)
+        return result[0] + (result[1] << 16)
 
     cpdef read_uint32(self):
-        result = struct.unpack_from("<I", self._data, self._position)[0]
+        cdef int result = struct.unpack_from("<I", self._data, self._position)[0]
         self._position += 4
         return result
 
     cpdef read_uint64(self):
-        result = struct.unpack_from("<Q", self._data, self._position)[0]
+        cdef int result = struct.unpack_from("<Q", self._data, self._position)[0]
         self._position += 8
         return result
 
@@ -112,7 +112,7 @@ cdef class MysqlPacket:
         cdef int end_pos = self._data.find(b"\0", self._position)
         if end_pos < 0:
             return None
-        result = self._data[self._position: end_pos]
+        cdef bytes result = self._data[self._position: end_pos]
         self._position = end_pos + 1
         return result
 
@@ -123,19 +123,20 @@ cdef class MysqlPacket:
         on the value of the first byte.
         """
         cdef int c = self.read_uint8()
-        if c == self.NULL_COLUMN:
+        if c == NULL_COLUMN:
             return None
-        if c < self.UNSIGNED_CHAR_COLUMN:
+        if c < UNSIGNED_CHAR_COLUMN:
             return c
-        elif c == self.UNSIGNED_SHORT_COLUMN:
+        elif c == UNSIGNED_SHORT_COLUMN:
             return self.read_uint16()
-        elif c == self.UNSIGNED_INT24_COLUMN:
+        elif c == UNSIGNED_INT24_COLUMN:
             return self.read_uint24()
-        elif c == self.UNSIGNED_INT64_COLUMN:
+        elif c == UNSIGNED_INT64_COLUMN:
             return self.read_uint64()
 
     cpdef read_length_coded_string(self):
-        """Read a 'Length Coded String' from the data buffer.
+        """
+        Read a 'Length Coded String' from the data buffer.
 
         A 'Length Coded String' consists first of a length coded
         (unsigned, positive) integer represented in 1-9 bytes followed by
@@ -180,7 +181,7 @@ cdef class MysqlPacket:
     cpdef is_error_packet(self):
         return self._data[0] == 0xFF
 
-    cpdef check_error(self):
+    def check_error(self):
         if self.is_error_packet():
             self.raise_for_error()
 
@@ -197,6 +198,10 @@ cdef class FieldDescriptorPacket(MysqlPacket):
     Parsing is automatically done and the results are exported via public
     attributes on the class such as: db, table_name, name, length, type_code.
     """
+    cdef public bytes catalog, db
+    cdef public str table_name, org_table, name, org_name
+    cdef public int charsetnr, length, type_code, flags, scale
+
     def __init__(self, bytes data, str encoding):
         super(FieldDescriptorPacket, self).__init__(data, encoding)
         self._parse_field_descriptor(encoding)
@@ -223,7 +228,7 @@ cdef class FieldDescriptorPacket(MysqlPacket):
         # 'default' is a length coded binary and is still in the buffer?
         # not used for normal result sets...
 
-    cdef description(self):
+    cpdef description(self):
         """Provides a 7-item tuple compatible with the Python PEP249 DB Spec."""
         return (
             self.name,
@@ -257,8 +262,11 @@ cdef class OKPacketWrapper:
     around it, exposing useful variables while still providing access
     to the original packet objects variables and methods.
     """
+    cdef public MysqlPacket packet
+    cdef public int affected_rows, insert_id, server_status, warning_count, has_next
+    cdef public bytes message
 
-    def __init__(self, from_packet):
+    def __init__(self, MysqlPacket from_packet):
         if not from_packet.is_ok_packet():
             raise ValueError(
                 "Cannot create "
@@ -284,8 +292,10 @@ cdef class EOFPacketWrapper:
     around it, exposing useful variables while still providing access
     to the original packet objects variables and methods.
     """
+    cdef public MysqlPacket packet
+    cdef public int server_status, warning_count, has_next
 
-    def __init__(self, from_packet):
+    def __init__(self,MysqlPacket from_packet):
         if not from_packet.is_eof_packet():
             raise ValueError(
                 f"Cannot create '{self.__class__}' object from invalid packet type"
@@ -299,14 +309,14 @@ cdef class EOFPacketWrapper:
         return getattr(self.packet, key)
 
 
-class LoadLocalPacketWrapper:
+cdef class LoadLocalPacketWrapper:
     """
     Load Local Packet Wrapper. It uses an existing packet object, and wraps
     around it, exposing useful variables while still providing access
     to the original packet objects variables and methods.
     """
 
-    def __init__(self, from_packet):
+    def __init__(self, MysqlPacket from_packet):
         if not from_packet.is_load_local_packet():
             raise ValueError(
                 f"Cannot create '{self.__class__}' object from invalid packet type"

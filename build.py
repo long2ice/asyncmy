@@ -30,6 +30,7 @@ else:
             'ext_modules': cythonize(
                 extensions,
                 language_level=3,
+                gdb_debug=True,
                 compiler_directives={'linetrace': True},
             ),
             'cmdclass': {'build_ext': build_ext}

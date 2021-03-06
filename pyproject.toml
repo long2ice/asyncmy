@@ -28,6 +28,10 @@ pytest-asyncio = "*"
 bandit = "*"
 pytest-mock = "*"
 cython = "*"
+mysqlclient = "*"
+pymysql = "*"
+aiomysql = "*"
+uvloop = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

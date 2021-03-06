@@ -196,7 +196,7 @@ class Cursor:
         self.rowcount = sum(self.execute(query, arg) for arg in args)
         return self.rowcount
 
-    def _do_execute_many(self, prefix, values, postfix, args, max_stmt_length, encoding):
+    async def _do_execute_many(self, prefix, values, postfix, args, max_stmt_length, encoding):
         conn = self._get_db()
         escape = self._escape_args
         if isinstance(prefix, str):
@@ -215,12 +215,12 @@ class Cursor:
             if isinstance(v, str):
                 v = v.encode(encoding, "surrogateescape")
             if len(sql) + len(v) + len(postfix) + 1 > max_stmt_length:
-                rows += self.execute(sql + postfix)
+                rows += await self.execute(sql + postfix)
                 sql = bytearray(prefix)
             else:
                 sql += b","
             sql += v
-        rows += self.execute(sql + postfix)
+        rows += await self.execute(sql + postfix)
         self.rowcount = rows
         return rows
 
