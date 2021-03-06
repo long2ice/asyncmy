@@ -13,6 +13,7 @@ packages = [
     { include = "asyncmy" }
 ]
 include = ["CHANGELOG.md", "LICENSE", "README.md"]
+build = 'build.py'
 
 [tool.poetry.dependencies]
 python = "^3.7"
@@ -26,6 +27,7 @@ pytest-xdist = "*"
 pytest-asyncio = "*"
 bandit = "*"
 pytest-mock = "*"
+cython = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
