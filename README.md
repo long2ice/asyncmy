@@ -2,12 +2,13 @@
 
 [![image](https://img.shields.io/pypi/v/asyncmy.svg?style=flat)](https://pypi.python.org/pypi/asyncmy)
 [![image](https://img.shields.io/github/license/long2ice/asyncmy)](https://github.com/long2ice/asyncmy)
-[![image](https://github.com/long2ice/asyncmy/workflows/pypi/badge.svg)](https://github.com/long2ice/asyncmy/actions?query=workflow:pypi)
-[![image](https://github.com/long2ice/asyncmy/workflows/ci/badge.svg)](https://github.com/long2ice/asyncmy/actions?query=workflow:ci)
+[![pypi](https://github.com/long2ice/asyncmy/actions/workflows/pypi.yml/badge.svg)](https://github.com/long2ice/asyncmy/actions/workflows/pypi.yml)
+[![ci](https://github.com/long2ice/asyncmy/actions/workflows/ci.yml/badge.svg)](https://github.com/long2ice/asyncmy/actions/workflows/ci.yml)
 
 ## Introduction
 
-`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL) and rewrite core with [cython](https://cython.org/) to speedup.
+`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL) and rewrite
+core with [cython](https://cython.org/) to speedup.
 
 ## Performance
 
@@ -27,6 +28,7 @@ Just install from pypi:
 from asyncmy import connect
 import asyncio
 
+
 async def run():
     conn = await connect()
     async with connection.cursor(cursor=DictCursor) as cursor:
@@ -43,6 +45,8 @@ async def run():
         `tinyint`  tinyint
     )"""
         )
+
+
 if __name__ == '__main__':
     asyncio.run(run())
 ```
@@ -53,13 +57,15 @@ if __name__ == '__main__':
 from asyncmy import connect
 import asyncio
 
+
 async def run():
     pool = await asyncmy.create_pool()
     async with pool.acquire() as conn:
-    async with conn.cursor() as cursor:
-        await cursor.execute("SELECT 1")
-        ret = cursor.fetchone()
-        assert ret == (1,)
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT 1")
+            ret = cursor.fetchone()
+            assert ret == (1,)
+
 
 if __name__ == '__main__':
     asyncio.run(run())

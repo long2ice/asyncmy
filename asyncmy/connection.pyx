@@ -844,9 +844,9 @@ class Connection:
         elif auth_packet.is_extra_auth_data():
             # https://dev.mysql.com/doc/internals/en/successful-authentication.html
             if self._auth_plugin_name == "caching_sha2_password":
-                auth_packet = auth.caching_sha2_password_auth(self, auth_packet)
+                auth_packet = await auth.caching_sha2_password_auth(self, auth_packet)
             elif self._auth_plugin_name == "sha256_password":
-                auth_packet = auth.sha256_password_auth(self, auth_packet)
+                auth_packet = await auth.sha256_password_auth(self, auth_packet)
             else:
                 raise errors.OperationalError(
                     "Received extra packet for auth method %r", self._auth_plugin_name
@@ -867,9 +867,9 @@ class Connection:
                         % (plugin_name, type(handler)),
                     )
         if plugin_name == b"caching_sha2_password":
-            return auth.caching_sha2_password_auth(self, auth_packet)
+            return await auth.caching_sha2_password_auth(self, auth_packet)
         elif plugin_name == b"sha256_password":
-            return auth.sha256_password_auth(self, auth_packet)
+            return await auth.sha256_password_auth(self, auth_packet)
         elif plugin_name == b"mysql_native_password":
             data = auth.scramble_native_password(self.password, auth_packet.read_all())
         elif plugin_name == b"client_ed25519":
