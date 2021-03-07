@@ -13,6 +13,6 @@ class Parser(configparser.RawConfigParser):
                 return value[1:-1]
         return value
 
-    def get(self, section, option):
+    def get(self, section, option, **kwargs):
         value = configparser.RawConfigParser.get(self, section, option)
         return self.__remove_quotes(value)

@@ -144,8 +144,8 @@ def sha2_rsa_encrypt(password, salt, public_key):
     return rsa_key.encrypt(
         message,
         padding.OAEP(
-            mgf=padding.MGF1(algorithm=hashes.SHA1()),
-            algorithm=hashes.SHA1(),
+            mgf=padding.MGF1(algorithm=hashes.SHA1()),  # nosec:B303
+            algorithm=hashes.SHA1(),  # nosec:B303
             label=None,
         ),
     )

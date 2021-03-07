@@ -19,7 +19,7 @@ else:
     def build(setup_kwargs):
         # The file you want to compile
         extensions = [
-            "asyncmy/protocol.pyx"
+            "asyncmy/*.pyx",
         ]
 
         # gcc arguments hack: enable optimizations

@@ -11,18 +11,15 @@ import warnings
 from asyncio import StreamReader, StreamWriter
 from typing import Optional, Type
 
-from . import auth, converters, errors
-from .charset import charset_by_id, charset_by_name
-from .constants import CLIENT, COMMAND, CR, FIELD_TYPE, SERVER_STATUS
-from .cursors import Cursor
-from .optionfile import Parser
-from .protocol import (
-    EOFPacketWrapper,
-    FieldDescriptorPacket,
-    LoadLocalPacketWrapper,
-    MysqlPacket,
-    OKPacketWrapper,
-)
+from asyncmy import auth, converters, errors
+from asyncmy.charset import charset_by_id, charset_by_name
+from asyncmy.constants import CLIENT, COMMAND, CR, FIELD_TYPE, SERVER_STATUS
+from asyncmy.cursors import Cursor
+from asyncmy.optionfile import Parser
+from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
+                              LoadLocalPacketWrapper, MysqlPacket,
+                              OKPacketWrapper)
+
 from .version import __VERSION__
 
 try:
@@ -42,7 +39,7 @@ except (ImportError, KeyError):
     # KeyError occurs when there's no entry in OS database for a current user.
     DEFAULT_USER = None
 
-TEXT_TYPES = {
+cdef set TEXT_TYPES = {
     FIELD_TYPE.BIT,
     FIELD_TYPE.BLOB,
     FIELD_TYPE.LONG_BLOB,
@@ -54,17 +51,15 @@ TEXT_TYPES = {
     FIELD_TYPE.GEOMETRY,
 }
 
-DEFAULT_CHARSET = "utf8mb4"
+cdef str DEFAULT_CHARSET = "utf8mb4"
 
-MAX_PACKET_LEN = 2 ** 24 - 1
+cdef int MAX_PACKET_LEN = 2 ** 24 - 1
 
-
-def _pack_int24(n):
+cdef _pack_int24(int n):
     return struct.pack("<I", n)[:3]
 
-
 # https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
-def _lenenc_int(i):
+cdef _lenenc_int(int i):
     if i < 0:
         raise ValueError(
             "Encoding %d is less than 0 - no representation in LengthEncodedInteger" % i
@@ -152,45 +147,45 @@ class Connection:
     """
 
     def __init__(
-        self,
-        *,
-        user=None,  # The first four arguments is based on DB-API 2.0 recommendation.
-        password="",
-        host=None,
-        database=None,
-        unix_socket=None,
-        port=0,
-        charset="",
-        sql_mode=None,
-        read_default_file=None,
-        conv=None,
-        use_unicode=True,
-        client_flag=0,
-        cursor_cls=Cursor,
-        init_command=None,
-        connect_timeout=10,
-        read_default_group=None,
-        autocommit=False,
-        local_infile=False,
-        max_allowed_packet=16 * 1024 * 1024,
-        auth_plugin_map=None,
-        read_timeout=None,
-        write_timeout=None,
-        bind_address=None,
-        binary_prefix=False,
-        program_name=None,
-        server_public_key=None,
-        ssl=None,
-        ssl_ca=None,
-        ssl_cert=None,
-        ssl_disabled=None,
-        ssl_key=None,
-        ssl_verify_cert=None,
-        ssl_verify_identity=None,
-        compress=None,  # not supported
-        named_pipe=None,  # not supported
-        passwd=None,  # deprecated
-        db=None,  # deprecated
+            self,
+            *,
+            user=None,  # The first four arguments is based on DB-API 2.0 recommendation.
+            password="",
+            host=None,
+            database=None,
+            unix_socket=None,
+            port=0,
+            charset="",
+            sql_mode=None,
+            read_default_file=None,
+            conv=None,
+            use_unicode=True,
+            client_flag=0,
+            cursor_cls=Cursor,
+            init_command=None,
+            connect_timeout=10,
+            read_default_group=None,
+            autocommit=False,
+            local_infile=False,
+            max_allowed_packet=16 * 1024 * 1024,
+            auth_plugin_map=None,
+            read_timeout=None,
+            write_timeout=None,
+            bind_address=None,
+            binary_prefix=False,
+            program_name=None,
+            server_public_key=None,
+            ssl=None,
+            ssl_ca=None,
+            ssl_cert=None,
+            ssl_disabled=None,
+            ssl_key=None,
+            ssl_verify_cert=None,
+            ssl_verify_identity=None,
+            compress=None,  # not supported
+            named_pipe=None,  # not supported
+            passwd=None,  # deprecated
+            db=None,  # deprecated
     ):
         if db is not None and database is None:
             # We will raise warining in 2022 or later.
@@ -625,7 +620,7 @@ class Connection:
         await self._write_bytes(data)
         self._next_seq_id = (self._next_seq_id + 1) % 256
 
-    async def read_packet(self, packet_type: Type[MysqlPacket] = MysqlPacket) -> MysqlPacket:
+    async def read_packet(self, packet_type=MysqlPacket):
         """
         Read an entire "mysql packet" in its entirety from the network
         and return a MysqlPacket type that represents the results.
@@ -756,7 +751,7 @@ class Connection:
         if packet_size < MAX_PACKET_LEN:
             return
 
-        sql = sql[packet_size - 1 :]
+        sql = sql[packet_size - 1:]
         while True:
             packet_size = min(MAX_PACKET_LEN, len(sql))
             await self.write_packet(sql[:packet_size])
@@ -975,17 +970,17 @@ class Connection:
         self.server_version = data[i:server_end].decode("latin1")
         i = server_end + 1
 
-        self.server_thread_id = struct.unpack("<I", data[i : i + 4])
+        self.server_thread_id = struct.unpack("<I", data[i: i + 4])
         i += 4
 
-        self.salt = data[i : i + 8]
+        self.salt = data[i: i + 8]
         i += 9  # 8 + 1(filler)
 
-        self.server_capabilities = struct.unpack("<H", data[i : i + 2])[0]
+        self.server_capabilities = struct.unpack("<H", data[i: i + 2])[0]
         i += 2
 
         if len(data) >= i + 6:
-            lang, stat, cap_h, salt_len = struct.unpack("<BHHB", data[i : i + 6])
+            lang, stat, cap_h, salt_len = struct.unpack("<BHHB", data[i: i + 6])
             i += 6
             # TODO: deprecate server_language and server_charset.
             # mysqlclient-python doesn't provide it.
@@ -1005,7 +1000,7 @@ class Connection:
 
         if len(data) >= i + salt_len:
             # salt_len includes auth_plugin_data_part_1 and filler
-            self.salt += data[i : i + salt_len]
+            self.salt += data[i: i + salt_len]
             i += salt_len
 
         i += 1
@@ -1267,13 +1262,13 @@ class LoadLocalFile:
 
 
 async def connect(
-    host: str,
-    port: int,
-    database: str,
-    user: str,
-    password: str,
-    cursor_cls=Cursor,
-    **kwargs,
+        host: str = '127.0.0.1',
+        port: int = 3306,
+        database: str = None,
+        user: str = 'root',
+        password: str = '',
+        cursor_cls=Cursor,
+        **kwargs,
 ) -> Connection:
     conn = Connection(
         user=user,

@@ -5,28 +5,36 @@ import aiomysql
 import MySQLdb
 import pymysql
 
-from asyncmy.connections import Connection
+import asyncmy
+
+connection_kwargs = dict(
+    host="127.0.0.1",
+    port=3306,
+    user="root",
+    password="123456",
+    database="test",
+)
 
 
 async def benchmark_asyncmy():
     t = time.time()
-    connection = Connection(user="root", password="123456")
-    await connection.connect()
-    async with connection.cursor() as cursor:
-        for _ in range(100000):
-            await cursor.execute("SELECT 1,2,3,4,5")
-            res = cursor.fetchall()
-            assert len(res) == 1
-            assert res[0] == (1, 2, 3, 4, 5)
+    pool = await asyncmy.create_pool(**connection_kwargs)
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            for _ in range(10000):
+                await cur.execute("SELECT 1,2,3,4,5")
+                res = cur.fetchall()
+                assert len(res) == 1
+                assert res[0] == (1, 2, 3, 4, 5)
     print("asyncmy", time.time() - t)
 
 
 async def benchmark_aiomysql():
-    pool = await aiomysql.create_pool(user="root", password="123456")
+    pool = await aiomysql.create_pool(**connection_kwargs)
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             t = time.time()
-            for _ in range(100000):
+            for _ in range(10000):
                 await cur.execute("SELECT 1,2,3,4,5")
                 res = await cur.fetchall()
                 assert len(res) == 1
@@ -35,10 +43,10 @@ async def benchmark_aiomysql():
 
 
 def benchmark_mysqlclient():
-    conn = MySQLdb.connect(user="root", host="localhost", password="123456")
+    conn = MySQLdb.connect(**connection_kwargs)
     cur = conn.cursor()
     t = time.time()
-    for _ in range(100000):
+    for _ in range(10000):
         cur.execute("SELECT 1,2,3,4,5")
         res = cur.fetchall()
         assert len(res) == 1
@@ -47,10 +55,10 @@ def benchmark_mysqlclient():
 
 
 def benchmark_pymysql():
-    conn = pymysql.connect(user="root", host="localhost", password="123456")
+    conn = pymysql.connect(**connection_kwargs)
     cur = conn.cursor()
     t = time.time()
-    for _ in range(100000):
+    for _ in range(10000):
         cur.execute("SELECT 1,2,3,4,5")
         res = cur.fetchall()
         assert len(res) == 1
@@ -59,6 +67,12 @@ def benchmark_pymysql():
 
 
 if __name__ == "__main__":
+    """
+    pymysql 1.5898151397705078
+    mysqlclient 0.5127310752868652
+    aiomysql 1.7445728778839111
+    asyncmy 1.369239091873169
+    """
     import uvloop
 
     uvloop.install()

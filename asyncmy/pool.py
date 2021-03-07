@@ -4,7 +4,7 @@ from asyncio import Condition
 from collections.abc import Coroutine
 from typing import Deque, Set
 
-from asyncmy.connections import Connection, connect
+from asyncmy.connection import Connection, connect
 
 
 class _ContextManager(Coroutine):

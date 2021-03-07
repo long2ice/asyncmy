@@ -1,8 +1,9 @@
-MB_LENGTH = {8: 1, 33: 3, 88: 2, 91: 2}
-
-
-class Charset:
-    def __init__(self, id, name, collation, is_default):
+cdef class Charset:
+    cdef:
+        public int id
+        public str name, collation
+        int is_default
+    def __init__(self, int id, str name, str  collation, str  is_default):
         self.id, self.name, self.collation = id, name, collation
         self.is_default = is_default == "Yes"
 
@@ -30,23 +31,23 @@ class Charset:
     def is_binary(self):
         return self.id == 63
 
-
-class Charsets:
+cdef class Charsets:
+    cdef:
+        dict _by_id, _by_name
     def __init__(self):
         self._by_id = {}
         self._by_name = {}
 
-    def add(self, c):
+    cpdef add(self, Charset c):
         self._by_id[c.id] = c
         if c.is_default:
             self._by_name[c.name] = c
 
-    def by_id(self, id):
+    cpdef  by_id(self, int id):
         return self._by_id[id]
 
-    def by_name(self, name):
+    cpdef  by_name(self, str name):
         return self._by_name.get(name.lower())
-
 
 _charsets = Charsets()
 """
@@ -205,5 +206,8 @@ _charsets.add(Charset(249, "gb18030", "gb18030_bin", ""))
 _charsets.add(Charset(250, "gb18030", "gb18030_unicode_520_ci", ""))
 _charsets.add(Charset(255, "utf8mb4", "utf8mb4_0900_ai_ci", ""))
 
-charset_by_name = _charsets.by_name
-charset_by_id = _charsets.by_id
+cpdef charset_by_name(str name):
+    return _charsets.by_name(name)
+
+cpdef charset_by_id(int id):
+    return _charsets.by_id(id)

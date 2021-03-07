@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from asyncmy.connections import Connection
+from asyncmy.connection import Connection
 
 
 @pytest.mark.asyncio
