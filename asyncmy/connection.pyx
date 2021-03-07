@@ -283,7 +283,7 @@ class Connection:
         if write_timeout is not None and write_timeout <= 0:
             raise ValueError("write_timeout should be > 0")
         self._write_timeout = write_timeout
-
+        self._secure = False
         self.charset = charset or DEFAULT_CHARSET
         self.use_unicode = use_unicode
 
