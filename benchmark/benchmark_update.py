@@ -1,4 +1,3 @@
-import asyncio
 import time
 
 import aiomysql
@@ -10,10 +9,10 @@ from benchmark import connection_kwargs
 
 
 async def update_asyncmy():
-    t = time.time()
     pool = await asyncmy.create_pool(**connection_kwargs)
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            t = time.time()
             for i in range(10000):
                 await cur.execute(
                     "update test.asyncmy set `string`=%s where `string` != %s limit 1",
@@ -22,7 +21,7 @@ async def update_asyncmy():
                         "update",
                     ),
                 )
-    print("asyncmy:", time.time() - t)
+    return time.time() - t
 
 
 async def update_aiomysql():
@@ -38,7 +37,7 @@ async def update_aiomysql():
                         "update",
                     ),
                 )
-            print("aiomysql:", time.time() - t)
+            return time.time() - t
 
 
 def update_mysqlclient():
@@ -53,7 +52,7 @@ def update_mysqlclient():
                 "update",
             ),
         )
-    print("mysqlclient:", time.time() - t)
+    return time.time() - t
 
 
 def update_pymysql():
@@ -68,22 +67,4 @@ def update_pymysql():
                 "update",
             ),
         )
-    print("pymysql:", time.time() - t)
-
-
-if __name__ == "__main__":
-    """
-    mysqlclient: 4.354475021362305
-    asyncmy: 4.9126691818237305
-    pymysql: 4.584356069564819
-    aiomysql: 4.210179090499878
-    """
-    import uvloop
-
-    uvloop.install()
-    loop = asyncio.get_event_loop()
-
-    update_mysqlclient()
-    loop.run_until_complete(update_asyncmy())
-    update_pymysql()
-    loop.run_until_complete(update_aiomysql())
+    return time.time() - t

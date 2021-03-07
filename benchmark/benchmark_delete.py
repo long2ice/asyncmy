@@ -1,4 +1,3 @@
-import asyncio
 import time
 
 import aiomysql
@@ -10,14 +9,14 @@ from benchmark import connection_kwargs
 
 
 async def delete_asyncmy():
-    t = time.time()
     pool = await asyncmy.create_pool(**connection_kwargs)
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            t = time.time()
             for i in range(10000):
                 ret = await cur.execute("delete from test.asyncmy limit 1")
                 assert ret == 1
-    print("asyncmy:", time.time() - t)
+    return time.time() - t
 
 
 async def delete_aiomysql():
@@ -28,7 +27,7 @@ async def delete_aiomysql():
             for i in range(10000):
                 ret = await cur.execute("delete from test.asyncmy limit 1")
                 assert ret == 1
-            print("aiomysql:", time.time() - t)
+            return time.time() - t
 
 
 def delete_mysqlclient():
@@ -38,7 +37,7 @@ def delete_mysqlclient():
     for i in range(10000):
         ret = cur.execute("delete from test.asyncmy limit 1")
         assert ret == 1
-    print("mysqlclient:", time.time() - t)
+    return time.time() - t
 
 
 def delete_pymysql():
@@ -48,22 +47,4 @@ def delete_pymysql():
     for i in range(10000):
         ret = cur.execute("delete from test.asyncmy limit 1")
         assert ret == 1
-    print("pymysql:", time.time() - t)
-
-
-if __name__ == "__main__":
-    """
-    mysqlclient: 3.2380189895629883
-    asyncmy: 3.498440980911255
-    pymysql: 3.875216007232666
-    aiomysql: 3.5140841007232666
-    """
-    import uvloop
-
-    uvloop.install()
-    loop = asyncio.get_event_loop()
-
-    delete_mysqlclient()
-    loop.run_until_complete(delete_asyncmy())
-    delete_pymysql()
-    loop.run_until_complete(delete_aiomysql())
+    return time.time() - t
