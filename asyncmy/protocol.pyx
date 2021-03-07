@@ -55,7 +55,7 @@ cdef class MysqlPacket:
         self._position = 0
         return result
 
-    cdef advance(self, int length):
+    cpdef advance(self, int length):
         """
         Advance the cursor in data buffer 'length' bytes.
         """
