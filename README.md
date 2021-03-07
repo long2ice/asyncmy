@@ -10,7 +10,11 @@
 `asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL) and rewrite
 core with [cython](https://cython.org/) to speedup.
 
-## Performance
+## Benchmark
+
+The result comes from [benchmark](./benchmark), we can know `asyncmy` performs well when compared to other drivers.
+
+![](./images/benchmark.png)
 
 ## Install
 
@@ -26,12 +30,13 @@ Just install from pypi:
 
 ```py
 from asyncmy import connect
+from asyncmy.cursors import DictCursor
 import asyncio
 
 
 async def run():
     conn = await connect()
-    async with connection.cursor(cursor=DictCursor) as cursor:
+    async with conn.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("create database if not exists test")
         await cursor.execute(
             """CREATE TABLE if not exists test.asyncmy
@@ -54,7 +59,7 @@ if __name__ == '__main__':
 ### Use `pool`
 
 ```py
-from asyncmy import connect
+import asyncmy
 import asyncio
 
 

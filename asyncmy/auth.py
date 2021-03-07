@@ -49,7 +49,7 @@ def _my_crypt(message1, message2):
 # MariaDB's client_ed25519-plugin
 # https://mariadb.com/kb/en/library/connection/#client_ed25519-plugin
 
-_nacl_bindings = False
+_nacl_bindings = None
 
 
 def _init_nacl():
@@ -130,7 +130,8 @@ def _xor_password(password, salt):
 
 
 def sha2_rsa_encrypt(password, salt, public_key):
-    """Encrypt password with salt and public_key.
+    """
+    Encrypt password with salt and public_key.
 
     Used for sha256_password and caching_sha2_password.
     """

@@ -98,7 +98,7 @@ cdef class MysqlPacket:
         return result
 
     cpdef int read_uint24(self):
-        cdef bytes result = struct.unpack_from("<HB", self._data, self._position)
+        cdef tuple result = struct.unpack_from("<HB", self._data, self._position)
         self._position += 3
         return result[0] + (result[1] << 16)
 

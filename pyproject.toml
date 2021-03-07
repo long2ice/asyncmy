@@ -33,6 +33,7 @@ pymysql = "*"
 aiomysql = "*"
 uvloop = "*"
 cryptography = "*"
+faker = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
