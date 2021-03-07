@@ -6,3 +6,5 @@ connection_kwargs = dict(
 )
 conn_mysqlclient = MySQLdb.connect(**connection_kwargs)
 conn_pymysql = pymysql.connect(**connection_kwargs)
+COUNT = 10000
+INSERT_COUNT = COUNT * 10

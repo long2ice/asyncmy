@@ -4,10 +4,9 @@ import aiomysql
 import faker
 
 import asyncmy
-from benchmark import conn_mysqlclient, conn_pymysql, connection_kwargs
+from benchmark import INSERT_COUNT, conn_mysqlclient, conn_pymysql, connection_kwargs
 
 faker = faker.Faker()
-count = 100000
 data = [
     (
         1,
@@ -17,7 +16,7 @@ data = [
         faker.name(),
         1,
     )
-    for _ in range(count)
+    for _ in range(INSERT_COUNT)
 ]
 sql = """INSERT INTO test.asyncmy(`decimal`, `date`, `datetime`, `float`, `string`, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s)"""
 
@@ -28,7 +27,7 @@ async def insert_asyncmy():
         async with conn.cursor() as cur:
             t = time.time()
             ret = await cur.executemany(sql, data)
-            assert ret == count
+            assert ret == INSERT_COUNT
             return time.time() - t
 
 
@@ -38,7 +37,7 @@ async def insert_aiomysql():
         async with conn.cursor() as cur:
             t = time.time()
             ret = await cur.executemany(sql, data)
-            assert ret == count
+            assert ret == INSERT_COUNT
             return time.time() - t
 
 
@@ -46,7 +45,7 @@ def insert_mysqlclient():
     cur = conn_mysqlclient.cursor()
     t = time.time()
     ret = cur.executemany(sql, data)
-    assert ret == count
+    assert ret == INSERT_COUNT
     return time.time() - t
 
 
@@ -54,5 +53,5 @@ def insert_pymysql():
     cur = conn_pymysql.cursor()
     t = time.time()
     ret = cur.executemany(sql, data)
-    assert ret == count
+    assert ret == INSERT_COUNT
     return time.time() - t

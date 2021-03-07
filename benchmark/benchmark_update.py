@@ -5,7 +5,7 @@ import MySQLdb
 import pymysql
 
 import asyncmy
-from benchmark import connection_kwargs
+from benchmark import COUNT, connection_kwargs
 
 
 async def update_asyncmy():
@@ -13,7 +13,7 @@ async def update_asyncmy():
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             t = time.time()
-            for i in range(10000):
+            for i in range(COUNT):
                 await cur.execute(
                     "update test.asyncmy set `string`=%s where `string` != %s limit 1",
                     (
@@ -29,7 +29,7 @@ async def update_aiomysql():
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             t = time.time()
-            for i in range(10000):
+            for i in range(COUNT):
                 await cur.execute(
                     "update test.asyncmy set `string`=%s where `string` != %s limit 1",
                     (
@@ -44,7 +44,7 @@ def update_mysqlclient():
     conn = MySQLdb.connect(**connection_kwargs)
     cur = conn.cursor()
     t = time.time()
-    for i in range(10000):
+    for i in range(COUNT):
         cur.execute(
             "update test.asyncmy set `string`=%s where `string` != %s limit 1",
             (
@@ -59,7 +59,7 @@ def update_pymysql():
     conn = pymysql.connect(**connection_kwargs)
     cur = conn.cursor()
     t = time.time()
-    for i in range(10000):
+    for i in range(COUNT):
         cur.execute(
             "update test.asyncmy set `string`=%s where `string` != %s limit 1",
             (
