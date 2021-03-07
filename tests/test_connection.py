@@ -3,11 +3,12 @@ import re
 import pytest
 
 from asyncmy.connection import Connection
+from conftest import connection_kwargs
 
 
 @pytest.mark.asyncio
 async def test_connect():
-    connection = Connection(user="root", password="123456")
+    connection = Connection(**connection_kwargs)
     await connection.connect()
     assert connection._connected
     assert re.match(
