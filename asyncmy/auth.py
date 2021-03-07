@@ -161,7 +161,7 @@ async def sha256_password_auth(conn, pkt):
             pkt = await _roundtrip(conn, b"\1")
 
     if pkt.is_extra_auth_data():
-        conn.server_public_key = pkt._data[1:]
+        conn.server_public_key = pkt.get_all_data()[1:]
 
     if conn.password:
         if not conn.server_public_key:
@@ -207,7 +207,9 @@ async def caching_sha2_password_auth(conn, pkt):
     # else: fast auth is tried in initial handshake
 
     if not pkt.is_extra_auth_data():
-        raise OperationalError("caching sha2: Unknown packet for fast auth: %s" % pkt._data[:1])
+        raise OperationalError(
+            "caching sha2: Unknown packet for fast auth: %s" % pkt.get_all_data()[:1]
+        )
 
     # magic numbers:
     # 2 - request public key
@@ -232,10 +234,10 @@ async def caching_sha2_password_auth(conn, pkt):
         pkt = await _roundtrip(conn, b"\x02")  # Request public key
         if not pkt.is_extra_auth_data():
             raise OperationalError(
-                "caching sha2: Unknown packet for public key: %s" % pkt._data[:1]
+                "caching sha2: Unknown packet for public key: %s" % pkt.get_all_data()[:1]
             )
 
-        conn.server_public_key = pkt._data[1:]
+        conn.server_public_key = pkt.get_all_data()[1:]
 
     data = sha2_rsa_encrypt(conn.password, conn.salt, conn.server_public_key)
     pkt = await _roundtrip(conn, data)
