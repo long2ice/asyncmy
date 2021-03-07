@@ -3,8 +3,6 @@ on: [ push, pull_request ]
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      MYSQL_PASS: root
     strategy:
       matrix:
         python-version: [ 3.7, 3.8, 3.9 ]
@@ -28,4 +26,6 @@ jobs:
       - name: Install requirements
         run: make deps
       - name: Run ci
+        env:
+          MYSQL_PASS: root
         run: make ci

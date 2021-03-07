@@ -126,7 +126,7 @@ _map_error(
     ]
 )
 
-cdef raise_mysql_exception(bytes data):
+cpdef raise_mysql_exception(bytes data):
     errno = struct.unpack("<h", data[1:3])[0]
     err_val = data[9:].decode("utf-8", "replace")
     error_class = error_map.get(errno)
