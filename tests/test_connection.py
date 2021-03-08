@@ -17,3 +17,21 @@ async def test_connect():
     )
     assert connection.get_proto_info() == 10
     assert connection.get_host_info() != "Not Connected"
+
+
+@pytest.mark.asyncio
+async def test_transaction(connection):
+    await connection.begin()
+    await connection.query(
+        """INSERT INTO test.asyncmy(`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,'%s','%s',%s,'%s',%s)"""
+        % (
+            1,
+            "2020-08-08",
+            "2020-08-08 00:00:00",
+            1,
+            "1",
+            1,
+        ),
+        True,
+    )
+    await connection.rollback()

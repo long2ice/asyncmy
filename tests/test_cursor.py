@@ -15,7 +15,7 @@ async def test_fetchone(connection):
 async def test_fetchall(connection):
     async with connection.cursor() as cursor:
         await cursor.execute("SELECT 1")
-        ret = cursor.fetchall()
+        ret = await cursor.fetchall()
         assert ret == ((1,),)
 
 
@@ -23,7 +23,7 @@ async def test_fetchall(connection):
 async def test_dict_cursor(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("SELECT 1")
-        ret = cursor.fetchall()
+        ret = await cursor.fetchall()
         assert ret == [{"1": 1}]
 
 

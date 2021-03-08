@@ -5,6 +5,7 @@
 import asyncio
 import errno
 import os
+import socket
 import struct
 import sys
 import warnings
@@ -286,10 +287,10 @@ class Connection:
         self._secure = False
         self.charset = charset or DEFAULT_CHARSET
         self.use_unicode = use_unicode
-
         self.encoding = charset_by_name(self.charset).encoding
 
         client_flag |= CLIENT.CAPABILITIES
+        client_flag |= CLIENT.MULTI_STATEMENTS
         if self.db:
             client_flag |= CLIENT.CONNECT_WITH_DB
 
@@ -373,11 +374,10 @@ class Connection:
         """
         if not self._connected:
             raise errors.Error("Already closed")
-        send_data = struct.pack("<iB", 1, COMMAND.COM_QUIT)
-        try:
-            await self._write_bytes(send_data)
-        finally:
-            await self._force_close()
+        send_data = struct.pack('<i', 1) + struct.pack("!B", COMMAND.COM_QUIT)
+        self._write_bytes(send_data)
+        await self._writer.drain()
+        await self._force_close()
 
     @property
     def connected(self):
@@ -405,7 +405,7 @@ class Connection:
     async def _read_ok_packet(self):
         pkt = await self.read_packet()
         if not pkt.is_ok_packet():
-            raise errors.OperationalError(2014, "Command Out of Sync")
+            raise errors.OperationalError(CR.CR_COMMANDS_OUT_OF_SYNC, "Command Out of Sync")
         ok = OKPacketWrapper(pkt)
         self.server_status = ok.server_status
         return ok
@@ -458,6 +458,25 @@ class Connection:
         await self._execute_command(COMMAND.COM_INIT_DB, db)
         await self._read_ok_packet()
 
+    def _set_keep_alive(self):
+        transport = self._writer.transport
+        transport.pause_reading()
+        raw_sock = transport.get_extra_info('socket', default=None)
+        if raw_sock is None:
+            raise RuntimeError("Transport does not expose socket instance")
+        raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        transport.resume_reading()
+
+    def _set_nodelay(self, value):
+        flag = int(bool(value))
+        transport = self._writer.transport
+        transport.pause_reading()
+        raw_sock = transport.get_extra_info('socket', default=None)
+        if raw_sock is None:
+            raise RuntimeError("Transport does not expose socket instance")
+        raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, flag)
+        transport.resume_reading()
+
     def escape(self, obj, mapping=None):
         """Escape whatever value is passed.
 
@@ -505,11 +524,11 @@ class Connection:
         if isinstance(sql, str):
             sql = sql.encode(self.encoding, "surrogateescape")
         await self._execute_command(COMMAND.COM_QUERY, sql)
-        self._affected_rows = await self._read_query_result(unbuffered=unbuffered)
+        await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
     async def next_result(self, unbuffered=False):
-        self._affected_rows = await self._read_query_result(unbuffered=unbuffered)
+        await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
     def affected_rows(self):
@@ -560,7 +579,8 @@ class Connection:
         try:
 
             if self.unix_socket:
-                self._reader, self._writer = await asyncio.open_unix_connection(self.unix_socket)
+                self._reader, self._writer = await asyncio.wait_for(asyncio.open_unix_connection(self.unix_socket),
+                                                                    timeout=self.connect_timeout)
                 self.host_info = "Localhost via UNIX socket"
                 self._secure = True
             else:
@@ -569,11 +589,12 @@ class Connection:
                     kwargs["source_address"] = (self.bind_address, 0)
                 while True:
                     try:
-                        self._reader, self._writer = await asyncio.open_connection(
+                        self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(
                             self.host,
                             self.port,
                             **kwargs,
-                        )
+                        ), timeout=self.connect_timeout)
+                        self._set_keep_alive()
                         break
                     except (OSError, IOError) as e:
                         if e.errno == errno.EINTR:
@@ -581,6 +602,7 @@ class Connection:
                         raise
                 self.host_info = "socket %s:%d" % (self.host, self.port)
 
+            self._set_nodelay(True)
             self._next_seq_id = 0
 
             await self._get_server_information()
@@ -610,14 +632,15 @@ class Connection:
             # So just reraise it.
             raise e
 
-    async def write_packet(self, payload):
-        """Writes an entire "mysql packet" in its entirety to the network
+    def write_packet(self, payload):
+        """
+        Writes an entire "mysql packet" in its entirety to the network
         adding its length and sequence number.
         """
         # Internal note: when you build packet manually and calls _write_bytes()
         # directly, you should set self._next_seq_id properly.
-        data = _pack_int24(len(payload)) + bytes([self._next_seq_id]) + payload
-        await self._write_bytes(data)
+        data = _pack_int24(len(payload)) + struct.pack("!B", self._next_seq_id) + payload
+        self._write_bytes(data)
         self._next_seq_id = (self._next_seq_id + 1) % 256
 
     async def read_packet(self, packet_type=MysqlPacket):
@@ -634,7 +657,6 @@ class Connection:
             btrl, btrh, packet_number = struct.unpack("<HBB", packet_header)
             bytes_to_read = btrl + (btrh << 16)
             if packet_number != self._next_seq_id:
-                await self._force_close()
                 if packet_number == 0:
                     # MariaDB sends error packet with seqno==0 when shutdown
                     raise errors.OperationalError(
@@ -646,7 +668,6 @@ class Connection:
                     % (packet_number, self._next_seq_id)
                 )
             self._next_seq_id = (self._next_seq_id + 1) % 256
-
             recv_data = await self._read_bytes(bytes_to_read)
             buff.extend(recv_data)
             # https://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
@@ -663,36 +684,22 @@ class Connection:
         return packet
 
     async def _read_bytes(self, num_bytes: int):
-        while True:
-            try:
-                data = await self._reader.readexactly(num_bytes)
-                if len(data) < num_bytes:
-                    await self._force_close()
-                    raise errors.OperationalError(
-                        CR.CR_SERVER_LOST, "Lost connection to MySQL server during query"
-                    )
-                return data
-            except (IOError, OSError) as e:
-                if e.errno == errno.EINTR:
-                    continue
-                await self._force_close()
-                raise errors.OperationalError(
-                    CR.CR_SERVER_LOST,
-                    "Lost connection to MySQL server during query (%s)" % (e,),
-                )
-            except asyncio.IncompleteReadError as e:
-                await self._force_close()
-                msg = "Lost connection to MySQL server during query"
-                raise errors.OperationalError(CR.CR_SERVER_LOST, msg) from e
-
-    async def _write_bytes(self, data: bytes):
         try:
-            self._writer.write(data)
-        except IOError as e:
+            data = await self._reader.readexactly(num_bytes)
+        except (IOError, OSError) as e:
             await self._force_close()
             raise errors.OperationalError(
-                CR.CR_SERVER_GONE_ERROR, "MySQL server has gone away (%r)" % (e,)
+                CR.CR_SERVER_LOST,
+                "Lost connection to MySQL server during query (%s)" % (e,),
             )
+        except asyncio.IncompleteReadError as e:
+            await self._force_close()
+            msg = "Lost connection to MySQL server during query"
+            raise errors.OperationalError(CR.CR_SERVER_LOST, msg) from e
+        return data
+
+    def _write_bytes(self, data: bytes):
+        self._writer.write(data)
 
     async def _read_query_result(self, unbuffered=False):
         self._result = None
@@ -708,9 +715,9 @@ class Connection:
             result = MySQLResult(self)
             await result.read()
         self._result = result
+        self._affected_rows = result.affected_rows
         if result.server_status is not None:
             self.server_status = result.server_status
-        return result.affected_rows
 
     def insert_id(self):
         if self._result:
@@ -724,7 +731,7 @@ class Connection:
         :raise ValueError: If no username was specified.
         """
         if not self._connected:
-            raise errors.InterfaceError(0, "")
+            raise errors.InterfaceError(0, "Not connected")
 
         # If the last query was unbuffered, make sure it finishes before
         # sending new commands
@@ -744,8 +751,7 @@ class Connection:
         # tiny optimization: build first packet manually instead of
         # calling self..write_packet()
         prelude = struct.pack("<iB", packet_size, command)
-        packet = prelude + sql[: packet_size - 1]
-        await self._write_bytes(packet)
+        self._write_bytes(prelude + sql[: packet_size - 1])
         self._next_seq_id = 1
 
         if packet_size < MAX_PACKET_LEN:
@@ -754,7 +760,7 @@ class Connection:
         sql = sql[packet_size - 1:]
         while True:
             packet_size = min(MAX_PACKET_LEN, len(sql))
-            await self.write_packet(sql[:packet_size])
+            self.write_packet(sql[:packet_size])
             sql = sql[packet_size:]
             if not sql and packet_size < MAX_PACKET_LEN:
                 break
@@ -774,7 +780,7 @@ class Connection:
         data_init = struct.pack("<iIB23s", self.client_flag, MAX_PACKET_LEN, charset_id, b"")
 
         if self.ssl and self.server_capabilities & CLIENT.SSL:
-            await self.write_packet(data_init)
+            self.write_packet(data_init)
             self._secure = True
 
         data = data_init + self.user + b"\0"
@@ -825,7 +831,7 @@ class Connection:
                 connect_attrs += struct.pack("B", len(v)) + v
             data += struct.pack("B", len(connect_attrs)) + connect_attrs
 
-        await self.write_packet(data)
+        self.write_packet(data)
         auth_packet = await self.read_packet()
 
         # if authentication method isn't accepted the first byte
@@ -839,7 +845,7 @@ class Connection:
             else:
                 # send legacy handshake
                 data = auth.scramble_old_password(self.password, self.salt) + b"\0"
-                await self.write_packet(data)
+                self.write_packet(data)
                 auth_packet = await self.read_packet()
         elif auth_packet.is_extra_auth_data():
             # https://dev.mysql.com/doc/internals/en/successful-authentication.html
@@ -888,12 +894,12 @@ class Connection:
                 prompt = pkt.read_all()
 
                 if prompt == b"Password: ":
-                    await self.write_packet(self.password + b"\0")
+                    self.write_packet(self.password + b"\0")
                 elif handler:
                     resp = "no response - TypeError within plugin.prompt method"
                     try:
                         resp = handler.prompt(echo, prompt)
-                        await self.write_packet(resp + b"\0")
+                        self.write_packet(resp + b"\0")
                     except AttributeError:
                         raise errors.OperationalError(
                             2059,
@@ -922,7 +928,7 @@ class Connection:
                 2059, "Authentication plugin '%s' not configured" % plugin_name
             )
 
-        await self.write_packet(data)
+        self.write_packet(data)
         pkt = await self.read_packet()
         pkt.check_error()
         return pkt
@@ -1113,7 +1119,7 @@ class MySQLResult:
 
         ok_packet = await self.connection.read_packet()
         if not ok_packet.is_ok_packet():  # pragma: no cover - upstream induced protocol error
-            raise errors.OperationalError(2014, "Commands Out of Sync")
+            raise errors.OperationalError(CR.CR_COMMANDS_OUT_OF_SYNC, "Commands Out of Sync")
         self._read_ok_packet(ok_packet)
 
     def _check_packet_is_eof(self, packet):

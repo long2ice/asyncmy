@@ -35,7 +35,7 @@ cdef class MysqlPacket:
         :param size: 
         :return: 
         """
-        cdef bytes result = self._data[self._position: (self._position + size)]
+        cdef bytes result = self._data[self._position: self._position + size]
         if len(result) != size:
             error = (
                     "Result length not requested length:\n"
@@ -148,8 +148,8 @@ cdef class MysqlPacket:
         that many bytes of binary data.  (For example "cat" would be "3cat".)
         """
         length = self.read_length_encoded_integer()
-        if length is None:
-            return b''
+        if length == -1:
+            return None
         return self.read(length)
 
     cpdef tuple read_struct(self, str fmt):
@@ -205,7 +205,7 @@ cdef class FieldDescriptorPacket(MysqlPacket):
     cdef:
         bytes catalog, db
         public str table_name, org_table, name, org_name
-        public int charsetnr, length, type_code, flags, scale
+        public long charsetnr, length, type_code, flags, scale
 
     def __init__(self, bytes data, str encoding):
         super(FieldDescriptorPacket, self).__init__(data, encoding)

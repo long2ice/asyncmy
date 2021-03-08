@@ -13,7 +13,7 @@ async def select_asyncmy():
             t = time.time()
             for i in range(COUNT):
                 await cur.execute("SELECT * from test.asyncmy where id = %s", (i + 1,))
-                res = cur.fetchall()
+                res = await cur.fetchall()
                 assert len(res) == 1
     return time.time() - t
 

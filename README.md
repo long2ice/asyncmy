@@ -68,7 +68,7 @@ async def run():
     async with pool.acquire() as conn:
         async with conn.cursor() as cursor:
             await cursor.execute("SELECT 1")
-            ret = cursor.fetchone()
+            ret = await cursor.fetchone()
             assert ret == (1,)
 
 

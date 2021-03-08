@@ -301,7 +301,7 @@ class Cursor:
         self.rownumber = min(end, len(self._rows))
         return result
 
-    def fetchall(self):
+    async def fetchall(self):
         """Fetch all the rows."""
         self._check_executed()
         if self._rows is None:
