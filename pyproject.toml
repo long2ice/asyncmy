@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "asyncmy"
-version = "0.1.0"
+version = "0.1.1"
 description = "A fast asyncio MySQL driver"
 authors = ["long2ice <long2ice@gmail.com>"]
 license = "Apache-2.0"
@@ -13,7 +13,6 @@ packages = [
     { include = "asyncmy" }
 ]
 include = ["CHANGELOG.md", "LICENSE", "README.md"]
-build = "build.py"
 
 [tool.poetry.dependencies]
 python = "^3.7"
@@ -34,6 +33,10 @@ aiomysql = "*"
 uvloop = "*"
 cryptography = "*"
 faker = "*"
+
+[tool.poetry.build]
+generate-setup-file = false
+script = "build.py"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
