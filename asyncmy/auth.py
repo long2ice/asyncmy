@@ -111,7 +111,7 @@ def ed25519_password(password, scramble):
 
 
 async def _roundtrip(conn, send_data):
-    await conn.write_packet(send_data)
+    conn.write_packet(send_data)
     pkt = await conn.read_packet()
     pkt.check_error()
     return pkt
