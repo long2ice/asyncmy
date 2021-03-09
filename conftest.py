@@ -32,7 +32,7 @@ def event_loop():
 async def connection():
     conn = await connect(**connection_kwargs)
     yield conn
-    await conn.close()
+    await conn.ensure_closed()
 
 
 @pytest.fixture(scope="session", autouse=True)

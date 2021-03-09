@@ -17,6 +17,7 @@ async def test_connect():
     )
     assert connection.get_proto_info() == 10
     assert connection.get_host_info() != "Not Connected"
+    await connection.ensure_closed()
 
 
 @pytest.mark.asyncio

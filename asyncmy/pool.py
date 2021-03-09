@@ -1,89 +1,10 @@
 import asyncio
 import collections
 from asyncio import Condition
-from collections.abc import Coroutine
 from typing import Deque, Set
 
 from asyncmy.connection import Connection, connect
-
-
-class _ContextManager(Coroutine):
-    __slots__ = ("_coro", "_obj")
-
-    def __init__(self, coro):
-        self._coro = coro
-        self._obj = None
-
-    def send(self, value):
-        return self._coro.send(value)
-
-    def throw(self, typ, val=None, tb=None):
-        if val is None:
-            return self._coro.throw(typ)
-        elif tb is None:
-            return self._coro.throw(typ, val)
-        else:
-            return self._coro.throw(typ, val, tb)
-
-    def close(self):
-        return self._coro.close()
-
-    @property
-    def gi_frame(self):
-        return self._coro.gi_frame
-
-    @property
-    def gi_running(self):
-        return self._coro.gi_running
-
-    @property
-    def gi_code(self):
-        return self._coro.gi_code
-
-    def __next__(self):
-        return self.send(None)
-
-    def __iter__(self):
-        return self._coro.__await__()
-
-    def __await__(self):
-        return self._coro.__await__()
-
-    async def __aenter__(self):
-        self._obj = await self._coro
-        return self._obj
-
-    async def __aexit__(self, exc_type, exc, tb):
-        await self._obj.close()
-        self._obj = None
-
-
-class _PoolContextManager(_ContextManager):
-    async def __aexit__(self, exc_type, exc, tb):
-        self._obj.close()
-        await self._obj.wait_closed()
-        self._obj = None
-
-
-class _PoolAcquireContextManager(_ContextManager):
-    __slots__ = ("_coro", "_conn", "_pool")
-
-    def __init__(self, coro, pool):
-        super().__init__(coro)
-        self._coro = coro
-        self._conn = None
-        self._pool = pool
-
-    async def __aenter__(self):
-        self._conn = await self._coro
-        return self._conn
-
-    async def __aexit__(self, exc_type, exc, tb):
-        try:
-            await self._pool.release(self._conn)
-        finally:
-            self._pool = None
-            self._conn = None
+from asyncmy.contexts import _PoolAcquireContextManager, _PoolContextManager
 
 
 class Pool(asyncio.AbstractServer):
@@ -93,7 +14,7 @@ class Pool(asyncio.AbstractServer):
         self._connection_kwargs = kwargs
         self._terminated: Set[Connection] = set()
         self._used: Set[Connection] = set()
-        self._cond = Condition()
+        self._cond = Condition(loop=loop)
         self._closing = False
         self._closed = False
         self._free: Deque[Connection] = collections.deque(maxlen=maxsize)
@@ -141,8 +62,12 @@ class Pool(asyncio.AbstractServer):
             return fut
         self._used.remove(connection)
         if connection.connected:
+            in_trans = connection.get_transaction_status()
+            if in_trans:
+                connection.close()
+                return fut
             if self._closing:
-                await connection.close()
+                connection.close()
             else:
                 self._free.append(connection)
             fut = self._loop.create_task(self._wakeup())
@@ -172,6 +97,14 @@ class Pool(asyncio.AbstractServer):
                     await self._cond.wait()
 
     async def initialize(self):
+        free_size = len(self._free)
+        n = 0
+        while n < free_size:
+            conn = self._free[-1]
+            if conn._reader.at_eof() or conn._reader.exception():
+                self._free.pop()
+                conn.close()
+            n += 1
         while self.size < self.minsize:
             conn = await connect(**self._connection_kwargs)
             self._free.append(conn)
@@ -182,7 +115,7 @@ class Pool(asyncio.AbstractServer):
         async with self._cond:
             while self._free:
                 conn = self._free.popleft()
-                await conn.close()
+                await conn.ensure_closed()
             self._cond.notify()
 
     async def wait_closed(self):
@@ -195,7 +128,7 @@ class Pool(asyncio.AbstractServer):
 
         while self._free:
             conn = self._free.popleft()
-            await conn.close()
+            conn.close()
 
         async with self._cond:
             while self.size > self.freesize:

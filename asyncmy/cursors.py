@@ -201,7 +201,7 @@ class Cursor:
                 q_postfix,
                 args,
                 self.max_stmt_length,
-                self._get_db().encoding,
+                self._get_db()._encoding,
             )
 
         self.rowcount = sum(self.execute(query, arg) for arg in args)

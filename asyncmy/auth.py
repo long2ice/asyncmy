@@ -153,22 +153,22 @@ def sha2_rsa_encrypt(password, salt, public_key):
 
 async def sha256_password_auth(conn, pkt):
     if conn._secure:
-        data = conn.password + b"\0"
+        data = conn._password + b"\0"
         return await _roundtrip(conn, data)
 
     if pkt.is_auth_switch_request():
         conn.salt = pkt.read_all()
-        if not conn.server_public_key and conn.password:
+        if not conn._server_public_key and conn._password:
             pkt = await _roundtrip(conn, b"\1")
 
     if pkt.is_extra_auth_data():
-        conn.server_public_key = pkt.get_all_data()[1:]
+        conn._server_public_key = pkt.get_all_data()[1:]
 
-    if conn.password:
-        if not conn.server_public_key:
+    if conn._password:
+        if not conn._server_public_key:
             raise OperationalError("Couldn't receive server's public key")
 
-        data = sha2_rsa_encrypt(conn.password, conn.salt, conn.server_public_key)
+        data = sha2_rsa_encrypt(conn._password, conn.salt, conn._server_public_key)
     else:
         data = b""
 
@@ -197,13 +197,13 @@ def scramble_caching_sha2(password, nonce):
 
 async def caching_sha2_password_auth(conn, pkt):
     # No password fast path
-    if not conn.password:
+    if not conn._password:
         return await _roundtrip(conn, b"")
 
     if pkt.is_auth_switch_request():
         # Try from fast auth
         conn.salt = pkt.read_all()
-        scrambled = scramble_caching_sha2(conn.password, conn.salt)
+        scrambled = scramble_caching_sha2(conn._password, conn.salt)
         pkt = await _roundtrip(conn, scrambled)
     # else: fast auth is tried in initial handshake
 
@@ -229,16 +229,16 @@ async def caching_sha2_password_auth(conn, pkt):
         raise OperationalError("caching sha2: Unknwon result for fast auth: %s" % n)
 
     if conn._secure:
-        return await _roundtrip(conn, conn.password + b"\0")
+        return await _roundtrip(conn, conn._password + b"\0")
 
-    if not conn.server_public_key:
+    if not conn._server_public_key:
         pkt = await _roundtrip(conn, b"\x02")  # Request public key
         if not pkt.is_extra_auth_data():
             raise OperationalError(
                 "caching sha2: Unknown packet for public key: %s" % pkt.get_all_data()[:1]
             )
 
-        conn.server_public_key = pkt.get_all_data()[1:]
+        conn._server_public_key = pkt.get_all_data()[1:]
 
-    data = sha2_rsa_encrypt(conn.password, conn.salt, conn.server_public_key)
+    data = sha2_rsa_encrypt(conn._password, conn.salt, conn._server_public_key)
     pkt = await _roundtrip(conn, data)
