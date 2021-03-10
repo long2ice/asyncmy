@@ -22,23 +22,21 @@ sql = """INSERT INTO test.asyncmy(`decimal`, `date`, `datetime`, `float`, `strin
 
 
 async def insert_asyncmy():
-    pool = await asyncmy.create_pool(**connection_kwargs)
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            t = time.time()
-            ret = await cur.executemany(sql, data)
-            assert ret == INSERT_COUNT
-            return time.time() - t
+    conn = await asyncmy.connect(**connection_kwargs)
+    async with conn.cursor() as cur:
+        t = time.time()
+        ret = await cur.executemany(sql, data)
+        assert ret == INSERT_COUNT
+        return time.time() - t
 
 
 async def insert_aiomysql():
-    pool = await aiomysql.create_pool(**connection_kwargs)
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            t = time.time()
-            ret = await cur.executemany(sql, data)
-            assert ret == INSERT_COUNT
-            return time.time() - t
+    conn = await aiomysql.connect(**connection_kwargs)
+    async with conn.cursor() as cur:
+        t = time.time()
+        ret = await cur.executemany(sql, data)
+        assert ret == INSERT_COUNT
+        return time.time() - t
 
 
 def insert_mysqlclient():

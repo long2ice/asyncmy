@@ -1,6 +1,7 @@
 import asyncio
 
 import uvloop
+from rich.pretty import pprint
 
 from benchmark import conn_mysqlclient
 from benchmark.benchmark_delete import (
@@ -52,43 +53,58 @@ if __name__ == "__main__":
     insert_asyncmy_ret = loop.run_until_complete(insert_asyncmy())
     insert_pymysql_ret = insert_pymysql()
     insert_aiomysql_ret = loop.run_until_complete(insert_aiomysql())
+
     select_mysqlclient_ret = select_mysqlclient()
     select_asyncmy_ret = loop.run_until_complete(select_asyncmy())
     select_pymysql_ret = select_pymysql()
     select_aiomysql_ret = loop.run_until_complete(select_aiomysql())
+
     update_mysqlclient_ret = update_mysqlclient()
     update_asyncmy_ret = loop.run_until_complete(update_asyncmy())
     update_pymysql_ret = update_pymysql()
     update_aiomysql_ret = loop.run_until_complete(update_aiomysql())
+
     delete_mysqlclient_ret = delete_mysqlclient()
     delete_asyncmy_ret = loop.run_until_complete(delete_asyncmy())
     delete_pymysql_ret = delete_pymysql()
     delete_aiomysql_ret = loop.run_until_complete(delete_aiomysql())
 
     ret = {
-        "select": {
-            "mysqlclient": select_mysqlclient_ret,
-            "asyncmy": select_asyncmy_ret,
-            "pymysql": select_pymysql_ret,
-            "aiomysql": select_aiomysql_ret,
-        },
-        "insert": {
-            "mysqlclient": insert_mysqlclient_ret,
-            "asyncmy": insert_asyncmy_ret,
-            "pymysql": insert_pymysql_ret,
-            "aiomysql": insert_aiomysql_ret,
-        },
-        "update": {
-            "mysqlclient": update_mysqlclient_ret,
-            "asyncmy": update_asyncmy_ret,
-            "pymysql": update_pymysql_ret,
-            "aiomysql": update_aiomysql_ret,
-        },
-        "delete": {
-            "mysqlclient": delete_mysqlclient_ret,
-            "asyncmy": delete_asyncmy_ret,
-            "pymysql": delete_pymysql_ret,
-            "aiomysql": delete_aiomysql_ret,
-        },
+        "select": sorted(
+            {
+                "mysqlclient": select_mysqlclient_ret,
+                "asyncmy": select_asyncmy_ret,
+                "pymysql": select_pymysql_ret,
+                "aiomysql": select_aiomysql_ret,
+            }.items(),
+            key=lambda x: x[1],
+        ),
+        "insert": sorted(
+            {
+                "mysqlclient": insert_mysqlclient_ret,
+                "asyncmy": insert_asyncmy_ret,
+                "pymysql": insert_pymysql_ret,
+                "aiomysql": insert_aiomysql_ret,
+            }.items(),
+            key=lambda x: x[1],
+        ),
+        "update": sorted(
+            {
+                "mysqlclient": update_mysqlclient_ret,
+                "asyncmy": update_asyncmy_ret,
+                "pymysql": update_pymysql_ret,
+                "aiomysql": update_aiomysql_ret,
+            }.items(),
+            key=lambda x: x[1],
+        ),
+        "delete": sorted(
+            {
+                "mysqlclient": delete_mysqlclient_ret,
+                "asyncmy": delete_asyncmy_ret,
+                "pymysql": delete_pymysql_ret,
+                "aiomysql": delete_aiomysql_ret,
+            }.items(),
+            key=lambda x: x[1],
+        ),
     }
-    print(ret)
+    pprint(ret)

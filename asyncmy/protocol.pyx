@@ -1,7 +1,8 @@
 import struct
 
 include "charset.pxd"
-from asyncmy.constants import FIELD_TYPE, SERVER_STATUS
+include "constants/SERVER_STATUS.pxi"
+include "constants/FIELD_TYPE.pxi"
 
 from . import errors
 
@@ -120,14 +121,14 @@ cdef class MysqlPacket:
         self._position = end_pos + 1
         return result
 
-    def read_length_encoded_integer(self):
+    cpdef read_length_encoded_integer(self):
         """
         Read a 'Length Coded Binary' number from the data buffer.
 
         Length coded numbers can be anywhere from 1 to 9 bytes depending
         on the value of the first byte.
         """
-        c = self.read_uint8()
+        cdef int c = self.read_uint8()
         if c == NULL_COLUMN:
             return None
         if c < UNSIGNED_CHAR_COLUMN:
@@ -246,7 +247,7 @@ cdef class FieldDescriptorPacket(MysqlPacket):
         )
 
     cdef int get_column_length(self):
-        if self.type_code == FIELD_TYPE.VAR_STRING:
+        if self.type_code == VAR_STRING:
             mb_len = MB_LENGTH.get(self.charsetnr, 1)
             return self.length // mb_len
         return self.length
@@ -287,7 +288,7 @@ cdef class OKPacketWrapper:
         self.insert_id = self.packet.read_length_encoded_integer()
         self.server_status, self.warning_count = self.read_struct("<HH")
         self.message = self.packet.read_all()
-        self.has_next = self.server_status & SERVER_STATUS.SERVER_MORE_RESULTS_EXISTS
+        self.has_next = self.server_status & SERVER_MORE_RESULTS_EXISTS
 
     def __getattr__(self, key):
         return getattr(self.packet, key)
@@ -310,7 +311,7 @@ cdef class EOFPacketWrapper:
 
         self.packet = from_packet
         self.warning_count, self.server_status = self.packet.read_struct("<xhh")
-        self.has_next = self.server_status & SERVER_STATUS.SERVER_MORE_RESULTS_EXISTS
+        self.has_next = self.server_status & SERVER_MORE_RESULTS_EXISTS
 
     def __getattr__(self, key):
         return getattr(self.packet, key)

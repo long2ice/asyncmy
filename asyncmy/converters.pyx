@@ -3,7 +3,7 @@ import re
 import time
 from decimal import Decimal
 
-from .constants import FIELD_TYPE
+include "constants/FIELD_TYPE.pxi"
 from .errors import ProgrammingError
 
 
@@ -25,36 +25,30 @@ def escape_item(val, charset, mapping=None):
         val = encoder(val, mapping)
     return val
 
-
-def escape_dict(val, charset, mapping=None):
+cpdef escape_dict(dict val, str charset, mapping=None):
     n = {}
     for k, v in val.items():
         quoted = escape_item(v, charset, mapping)
         n[k] = quoted
     return n
 
-
-def escape_sequence(val, charset, mapping=None):
+cpdef escape_sequence(list val, str charset, mapping=None):
     n = []
     for item in val:
         quoted = escape_item(item, charset, mapping)
         n.append(quoted)
     return "(" + ",".join(n) + ")"
 
-
-def escape_set(val, charset, mapping=None):
+cpdef escape_set(set val, str charset, mapping=None):
     return ",".join([escape_item(x, charset, mapping) for x in val])
 
-
-def escape_bool(value, mapping=None):
+cpdef escape_bool(int value, mapping=None):
     return str(int(value))
 
-
-def escape_int(value, mapping=None):
+cpdef escape_int(int value, mapping=None):
     return str(value)
 
-
-def escape_float(value, mapping=None):
+cpdef escape_float(float value, mapping=None):
     s = repr(value)
     if s in ("inf", "nan"):
         raise ProgrammingError("%s can not be used with MySQL" % s)
@@ -62,8 +56,7 @@ def escape_float(value, mapping=None):
         s += "e0"
     return s
 
-
-_escape_table = [chr(x) for x in range(128)]
+cdef list _escape_table = [chr(x) for x in range(128)]
 _escape_table[0] = "\\0"
 _escape_table[ord("\\")] = "\\\\"
 _escape_table[ord("\n")] = "\\n"
@@ -72,30 +65,25 @@ _escape_table[ord("\032")] = "\\Z"
 _escape_table[ord('"')] = '\\"'
 _escape_table[ord("'")] = "\\'"
 
-
-def escape_string(value, mapping=None):
-    """escapes *value* without adding quote.
+cpdef str escape_string(str value, mapping=None):
+    """
+    escapes *value* without adding quote.
 
     Value should be unicode
     """
     return value.translate(_escape_table)
 
-
-def escape_bytes_prefixed(value, mapping=None):
+cpdef str escape_bytes_prefixed(bytes value, mapping=None):
     return "_binary'%s'" % value.decode("ascii", "surrogateescape").translate(_escape_table)
 
-
-def escape_bytes(value, mapping=None):
+cpdef str escape_bytes(bytes value, mapping=None):
     return "'%s'" % value.decode("ascii", "surrogateescape").translate(_escape_table)
 
-
-def escape_str(value, mapping=None):
+cpdef str escape_str(str value, mapping=None):
     return "'%s'" % escape_string(str(value), mapping)
 
-
-def escape_None(value, mapping=None):
+cpdef str escape_None(value, mapping=None):
     return "NULL"
-
 
 def escape_timedelta(obj, mapping=None):
     seconds = int(obj.seconds) % 60
@@ -107,50 +95,42 @@ def escape_timedelta(obj, mapping=None):
         fmt = "'{0:02d}:{1:02d}:{2:02d}'"
     return fmt.format(hours, minutes, seconds, obj.microseconds)
 
-
-def escape_time(obj, mapping=None):
+cpdef str escape_time(obj, mapping=None):
     if obj.microsecond:
         fmt = "'{0.hour:02}:{0.minute:02}:{0.second:02}.{0.microsecond:06}'"
     else:
         fmt = "'{0.hour:02}:{0.minute:02}:{0.second:02}'"
     return fmt.format(obj)
 
-
-def escape_datetime(obj, mapping=None):
+cpdef str  escape_datetime(obj, mapping=None):
     if obj.microsecond:
         fmt = "'{0.year:04}-{0.month:02}-{0.day:02} {0.hour:02}:{0.minute:02}:{0.second:02}.{0.microsecond:06}'"
     else:
         fmt = "'{0.year:04}-{0.month:02}-{0.day:02} {0.hour:02}:{0.minute:02}:{0.second:02}'"
     return fmt.format(obj)
 
-
-def escape_date(obj, mapping=None):
+cpdef str  escape_date(obj, mapping=None):
     fmt = "'{0.year:04}-{0.month:02}-{0.day:02}'"
     return fmt.format(obj)
 
-
-def escape_struct_time(obj, mapping=None):
+cpdef str  escape_struct_time(obj, mapping=None):
     return escape_datetime(datetime.datetime(*obj[:6]))
 
-
-def Decimal2Literal(o, d):
+cpdef str  Decimal2Literal(o, d):
     return format(o, "f")
 
-
-def _convert_second_fraction(s):
+cpdef int  _convert_second_fraction(s):
     if not s:
         return 0
     # Pad zeros to ensure the fraction length in microseconds
     s = s.ljust(6, "0")
     return int(s[:6])
 
-
 DATETIME_RE = re.compile(
     r"(\d{1,4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?"
 )
 
-
-def convert_datetime(obj):
+cpdef convert_datetime(obj):
     """Returns a DATETIME or TIMESTAMP column value as a datetime object:
 
       >>> convert_datetime('2007-02-25 23:06:20')
@@ -180,9 +160,7 @@ def convert_datetime(obj):
     except ValueError:
         return convert_date(obj)
 
-
 TIMEDELTA_RE = re.compile(r"(-)?(\d{1,3}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?")
-
 
 def convert_timedelta(obj):
     """Returns a TIME column as a timedelta object:
@@ -215,21 +193,19 @@ def convert_timedelta(obj):
         hours, minutes, seconds, microseconds = groups[1:]
 
         tdelta = (
-            datetime.timedelta(
-                hours=int(hours),
-                minutes=int(minutes),
-                seconds=int(seconds),
-                microseconds=int(microseconds),
-            )
-            * negate
+                datetime.timedelta(
+                    hours=int(hours),
+                    minutes=int(minutes),
+                    seconds=int(seconds),
+                    microseconds=int(microseconds),
+                )
+                * negate
         )
         return tdelta
     except ValueError:
         return obj
 
-
 TIME_RE = re.compile(r"(\d{1,2}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?")
-
 
 def convert_time(obj):
     """Returns a TIME column as a time object:
@@ -251,7 +227,7 @@ def convert_time(obj):
     Also note that MySQL's TIME column corresponds more closely to
     Python's timedelta and not time. However if you want TIME columns
     to be treated as time-of-day and not a time offset, then you can
-    use set this function as the converter for FIELD_TYPE.TIME.
+    use set this function as the converter for TIME.
     """
     if isinstance(obj, (bytes, bytearray)):
         obj = obj.decode("ascii")
@@ -273,8 +249,7 @@ def convert_time(obj):
     except ValueError:
         return obj
 
-
-def convert_date(obj):
+cpdef convert_date(obj):
     """Returns a DATE column as a date object:
 
       >>> convert_date('2007-02-26')
@@ -295,10 +270,8 @@ def convert_date(obj):
     except ValueError:
         return obj
 
-
 def through(x):
     return x
-
 
 # def convert_bit(b):
 #    b = "\x00" * (8 - len(b)) + b # pad w/ zeroes
@@ -308,8 +281,7 @@ def through(x):
 #     so we shouldn't either
 convert_bit = through
 
-
-encoders = {
+cdef dict encoders = {
     bool: escape_bool,
     int: escape_int,
     float: escape_float,
@@ -329,32 +301,30 @@ encoders = {
     Decimal: Decimal2Literal,
 }
 
-
-decoders = {
-    FIELD_TYPE.BIT: convert_bit,
-    FIELD_TYPE.TINY: int,
-    FIELD_TYPE.SHORT: int,
-    FIELD_TYPE.LONG: int,
-    FIELD_TYPE.FLOAT: float,
-    FIELD_TYPE.DOUBLE: float,
-    FIELD_TYPE.LONGLONG: int,
-    FIELD_TYPE.INT24: int,
-    FIELD_TYPE.YEAR: int,
-    FIELD_TYPE.TIMESTAMP: convert_datetime,
-    FIELD_TYPE.DATETIME: convert_datetime,
-    FIELD_TYPE.TIME: convert_timedelta,
-    FIELD_TYPE.DATE: convert_date,
-    FIELD_TYPE.BLOB: through,
-    FIELD_TYPE.TINY_BLOB: through,
-    FIELD_TYPE.MEDIUM_BLOB: through,
-    FIELD_TYPE.LONG_BLOB: through,
-    FIELD_TYPE.STRING: through,
-    FIELD_TYPE.VAR_STRING: through,
-    FIELD_TYPE.VARCHAR: through,
-    FIELD_TYPE.DECIMAL: Decimal,
-    FIELD_TYPE.NEWDECIMAL: Decimal,
+cdef dict decoders = {
+    BIT: convert_bit,
+    TINY: int,
+    SHORT: int,
+    LONG: int,
+    FLOAT: float,
+    DOUBLE: float,
+    LONGLONG: int,
+    INT24: int,
+    YEAR: int,
+    TIMESTAMP: convert_datetime,
+    DATETIME: convert_datetime,
+    TIME: convert_timedelta,
+    DATE: convert_date,
+    BLOB: through,
+    TINY_BLOB: through,
+    MEDIUM_BLOB: through,
+    LONG_BLOB: through,
+    STRING: through,
+    VAR_STRING: through,
+    VARCHAR: through,
+    DECIMAL: Decimal,
+    NEWDECIMAL: Decimal,
 }
-
 
 # for MySQLdb compatibility
 conversions = encoders.copy()

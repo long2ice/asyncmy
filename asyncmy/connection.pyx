@@ -14,13 +14,19 @@ from typing import Optional, Type
 
 from asyncmy import auth, converters, errors
 from asyncmy.charset import charset_by_id, charset_by_name
-from asyncmy.constants import (CLIENT, COMMAND, CR, ER, FIELD_TYPE,
-                               SERVER_STATUS)
-from asyncmy.cursors import Cursor
-from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
                               OKPacketWrapper)
+
+include "constants/ER.pxi"
+include "constants/CLIENT.pxi"
+include "constants/COMMAND.pxi"
+include "constants/CR.pxi"
+include "constants/FIELD_TYPE.pxi"
+include "constants/SERVER_STATUS.pxi"
+
+from asyncmy.cursors import Cursor
+from asyncmy.optionfile import Parser
 
 from .contexts import _ConnectionContextManager
 from .version import __VERSION__
@@ -43,15 +49,15 @@ except (ImportError, KeyError):
     DEFAULT_USER = None
 
 cdef set TEXT_TYPES = {
-    FIELD_TYPE.BIT,
-    FIELD_TYPE.BLOB,
-    FIELD_TYPE.LONG_BLOB,
-    FIELD_TYPE.MEDIUM_BLOB,
-    FIELD_TYPE.STRING,
-    FIELD_TYPE.TINY_BLOB,
-    FIELD_TYPE.VAR_STRING,
-    FIELD_TYPE.VARCHAR,
-    FIELD_TYPE.GEOMETRY,
+    BIT,
+    BLOB,
+    LONG_BLOB,
+    MEDIUM_BLOB,
+    STRING,
+    TINY_BLOB,
+    VAR_STRING,
+    VARCHAR,
+    GEOMETRY,
 }
 
 cdef str DEFAULT_CHARSET = "utf8mb4"
@@ -111,7 +117,7 @@ class Connection:
     :param use_unicode:
         Whether or not to default to unicode strings.
         This option defaults to true.
-    :param client_flag: Custom flags to send to MySQL. Find potential values in constants.CLIENT.
+    :param client_flag: Custom flags to send to MySQL. Find potential values in constants.
     :param cursor_cls: Custom cursor class to use.
     :param init_command: Initial SQL statement to run when connection is established.
     :param connect_timeout: The timeout for connecting to the database in seconds.
@@ -119,7 +125,7 @@ class Connection:
     :param ssl: Optional SSL Context to force SSL
     :param read_default_group: Group to read from in the configuration file.
     :param autocommit: Autocommit mode. None means use server default. (default: False)
-    :param local_infile: Boolean to enable the use of LOAD DATA LOCAL command. (default: False)
+    :param local_infile: Boolean to enable the use of LOAD DATA LOCAL  (default: False)
     :param max_allowed_packet: Max size of packet sent to server in bytes. (default: 16MB)
         Only used to limit size of "LOAD LOCAL INFILE" data packet smaller than default (16KB).
     :param auth_plugin_map: A dict of plugin names to a class that processes that plugin.
@@ -175,7 +181,7 @@ class Connection:
             database = db
         self._local_infile = bool(local_infile)
         if self._local_infile:
-            client_flag |= CLIENT.LOCAL_FILES
+            client_flag |= LOCAL_FILES
 
         if read_default_group and not read_default_file:
             if sys.platform.startswith("win"):
@@ -208,7 +214,7 @@ class Connection:
 
         self._ssl_context = ssl
         if ssl:
-            client_flag |= CLIENT.SSL
+            client_flag |= SSL
 
         self._host = host
         self._port = port
@@ -234,10 +240,10 @@ class Connection:
         self._use_unicode = use_unicode
         self._encoding = charset_by_name(self._charset).encoding
 
-        client_flag |= CLIENT.CAPABILITIES
-        client_flag |= CLIENT.MULTI_STATEMENTS
+        client_flag |= CAPABILITIES
+        client_flag |= MULTI_STATEMENTS
         if self._db:
-            client_flag |= CLIENT.CONNECT_WITH_DB
+            client_flag |= CONNECT_WITH_DB
 
         self._client_flag = client_flag
 
@@ -291,7 +297,7 @@ class Connection:
     async def ensure_closed(self):
         """Close connection without QUIT message."""
         if self._connected:
-            send_data = struct.pack('<i', 1) + struct.pack("!B", COMMAND.COM_QUIT)
+            send_data = struct.pack('<i', 1) + struct.pack("!B", COM_QUIT)
             self._write_bytes(send_data)
             await self._writer.drain()
             self._writer.close()
@@ -306,12 +312,12 @@ class Connection:
             await self._send_autocommit_mode()
 
     def get_autocommit(self):
-        return bool(self.server_status & SERVER_STATUS.SERVER_STATUS_AUTOCOMMIT)
+        return bool(self.server_status & SERVER_STATUS_AUTOCOMMIT)
 
     async def _read_ok_packet(self):
         pkt = await self.read_packet()
         if not pkt.is_ok_packet():
-            raise errors.OperationalError(CR.CR_COMMANDS_OUT_OF_SYNC, "Command Out of Sync")
+            raise errors.OperationalError(CR_COMMANDS_OUT_OF_SYNC, "Command Out of Sync")
         ok = OKPacketWrapper(pkt)
         self.server_status = ok.server_status
         return ok
@@ -319,13 +325,13 @@ class Connection:
     async def _send_autocommit_mode(self):
         """Set whether or not to commit after every execute()."""
         await self._execute_command(
-            COMMAND.COM_QUERY, "SET AUTOCOMMIT = %s" % self.escape(self.autocommit_mode)
+            COM_QUERY, "SET AUTOCOMMIT = %s" % self.escape(self.autocommit_mode)
         )
         await self._read_ok_packet()
 
     async def begin(self):
         """Begin transaction."""
-        await self._execute_command(COMMAND.COM_QUERY, "BEGIN")
+        await self._execute_command(COM_QUERY, "BEGIN")
         await self._read_ok_packet()
 
     async def commit(self):
@@ -335,7 +341,7 @@ class Connection:
         See `Connection.commit() <https://www.python.org/dev/peps/pep-0249/#commit>`_
         in the specification.
         """
-        await self._execute_command(COMMAND.COM_QUERY, "COMMIT")
+        await self._execute_command(COM_QUERY, "COMMIT")
         await self._read_ok_packet()
 
     async def rollback(self):
@@ -345,12 +351,12 @@ class Connection:
         See `Connection.rollback() <https://www.python.org/dev/peps/pep-0249/#rollback>`_
         in the specification.
         """
-        await self._execute_command(COMMAND.COM_QUERY, "ROLLBACK")
+        await self._execute_command(COM_QUERY, "ROLLBACK")
         await self._read_ok_packet()
 
     async def show_warnings(self):
-        """Send the "SHOW WARNINGS" SQL command."""
-        await self._execute_command(COMMAND.COM_QUERY, "SHOW WARNINGS")
+        """Send the "SHOW WARNINGS" SQL """
+        await self._execute_command(COM_QUERY, "SHOW WARNINGS")
         result = MySQLResult(self)
         await result.read()
         return result.rows
@@ -361,7 +367,7 @@ class Connection:
 
         :param db: The name of the db.
         """
-        await self._execute_command(COMMAND.COM_INIT_DB, db)
+        await self._execute_command(COM_INIT_DB, db)
         await self._read_ok_packet()
 
     def _set_keep_alive(self):
@@ -404,13 +410,13 @@ class Connection:
         """
         return self.escape(obj, self._encoders)
 
-    def escape_string(self, s):
-        if self.server_status & SERVER_STATUS.SERVER_STATUS_NO_BACKSLASH_ESCAPES:
+    def escape_string(self, str s):
+        if self.server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES:
             return s.replace("'", "''")
         return converters.escape_string(s)
 
-    def _quote_bytes(self, s):
-        if self.server_status & SERVER_STATUS.SERVER_STATUS_NO_BACKSLASH_ESCAPES:
+    def _quote_bytes(self, bytes s):
+        if self.server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES:
             return "'%s'" % (s.replace(b"'", b"''").decode("ascii", "surrogateescape"),)
         return converters.escape_bytes(s)
 
@@ -429,7 +435,7 @@ class Connection:
     async def query(self, sql, unbuffered=False):
         if isinstance(sql, str):
             sql = sql.encode(self._encoding, "surrogateescape")
-        await self._execute_command(COMMAND.COM_QUERY, sql)
+        await self._execute_command(COM_QUERY, sql)
         await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
@@ -442,7 +448,7 @@ class Connection:
 
     async def kill(self, thread_id):
         arg = struct.pack("<I", thread_id)
-        await self._execute_command(COMMAND.COM_PROCESS_KILL, arg)
+        await self._execute_command(COM_PROCESS_KILL, arg)
         return await self._read_ok_packet()
 
     async def ping(self, reconnect=True):
@@ -461,7 +467,7 @@ class Connection:
             else:
                 raise errors.Error("Already closed")
         try:
-            await self._execute_command(COMMAND.COM_PING, "")
+            await self._execute_command(COM_PING, "")
             await self._read_ok_packet()
         except Exception:
             if reconnect:
@@ -474,7 +480,7 @@ class Connection:
         # Make sure charset is supported.
         encoding = charset_by_name(charset)._encoding
 
-        await self._execute_command(COMMAND.COM_QUERY, "SET NAMES %s" % self.escape(charset))
+        await self._execute_command(COM_QUERY, "SET NAMES %s" % self.escape(charset))
         await self.read_packet()
         self._charset = charset
         self._encoding = encoding
@@ -530,14 +536,14 @@ class Connection:
             self.close()
             if isinstance(e, (OSError, IOError)):
                 raise errors.OperationalError(
-                    CR.CR_CONN_HOST_ERROR, "Can't connect to MySQL server on %r (%s)" % (self._host, e)
+                    CR_CONN_HOST_ERROR, "Can't connect to MySQL server on %r (%s)" % (self._host, e)
                 ) from e
             # If e is neither DatabaseError or IOError, It's a bug.
             # But raising AssertionError hides original error.
             # So just reraise it.
             raise e
 
-    def write_packet(self, payload):
+    def write_packet(self, bytes payload):
         """
         Writes an entire "mysql packet" in its entirety to the network
         adding its length and sequence number.
@@ -565,7 +571,7 @@ class Connection:
                 if packet_number == 0:
                     # MariaDB sends error packet with seqno==0 when shutdown
                     raise errors.OperationalError(
-                        CR.CR_SERVER_LOST,
+                        CR_SERVER_LOST,
                         "Lost connection to MySQL server during query",
                     )
                 raise errors.InternalError(
@@ -593,15 +599,15 @@ class Connection:
             data = await self._reader.readexactly(num_bytes)
         except (IOError, OSError) as e:
             raise errors.OperationalError(
-                CR.CR_SERVER_LOST,
+                CR_SERVER_LOST,
                 "Lost connection to MySQL server during query (%s)" % (e,),
             )
         except asyncio.IncompleteReadError as e:
             msg = "Lost connection to MySQL server during query"
-            raise errors.OperationalError(CR.CR_SERVER_LOST, msg) from e
+            raise errors.OperationalError(CR_SERVER_LOST, msg) from e
         return data
 
-    def _write_bytes(self, data: bytes):
+    def _write_bytes(self, bytes data):
         self._writer.write(data)
 
     async def _read_query_result(self, unbuffered=False):
@@ -680,7 +686,7 @@ class Connection:
     async def _request_authentication(self):
         # https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::HandshakeResponse
         if int(self.server_version.split(".", 1)[0]) >= 5:
-            self._client_flag |= CLIENT.MULTI_RESULTS
+            self._client_flag |= MULTI_RESULTS
 
         if self._user is None:
             raise ValueError("Did not specify a username")
@@ -733,29 +739,29 @@ class Connection:
                 authresp = auth.scramble_caching_sha2(self._password, self.salt)
         elif self._auth_plugin_name == "sha256_password":
             plugin_name = b"sha256_password"
-            if self.ssl and self.server_capabilities & CLIENT.SSL:
+            if self.ssl and self.server_capabilities & SSL:
                 authresp = self._password + b"\0"
             elif self._password:
                 authresp = b"\1"  # request public key
             else:
                 authresp = b"\0"  # empty password
 
-        if self.server_capabilities & CLIENT.PLUGIN_AUTH_LENENC_CLIENT_DATA:
+        if self.server_capabilities & PLUGIN_AUTH_LENENC_CLIENT_DATA:
             data += _lenenc_int(len(authresp)) + authresp
-        elif self.server_capabilities & CLIENT.SECURE_CONNECTION:
+        elif self.server_capabilities & SECURE_CONNECTION:
             data += struct.pack("B", len(authresp)) + authresp
         else:  # pragma: no cover - not testing against servers without secure auth (>=5.0)
             data += authresp + b"\0"
 
-        if self._db and self.server_capabilities & CLIENT.CONNECT_WITH_DB:
+        if self._db and self.server_capabilities & CONNECT_WITH_DB:
             if isinstance(self._db, str):
                 self._db = self._db.encode(self._encoding)
             data += self._db + b"\0"
 
-        if self.server_capabilities & CLIENT.PLUGIN_AUTH:
+        if self.server_capabilities & PLUGIN_AUTH:
             data += (plugin_name or b"") + b"\0"
 
-        if self.server_capabilities & CLIENT.CONNECT_ATTRS:
+        if self.server_capabilities & CONNECT_ATTRS:
             connect_attrs = b""
             for k, v in self._connect_attrs.items():
                 k = k.encode("utf-8")
@@ -773,7 +779,7 @@ class Connection:
             # https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::AuthSwitchRequest
             auth_packet.read_uint8()  # 0xfe packet identifier
             plugin_name = auth_packet.read_string()
-            if self.server_capabilities & CLIENT.PLUGIN_AUTH and plugin_name is not None:
+            if self.server_capabilities & PLUGIN_AUTH and plugin_name is not None:
                 auth_packet = await self._process_auth(plugin_name, auth_packet)
             else:
                 # send legacy handshake
@@ -898,7 +904,7 @@ class Connection:
         return self.protocol_version
 
     def get_transaction_status(self):
-        return bool(self.server_status & SERVER_STATUS.SERVER_STATUS_IN_TRANS)
+        return bool(self.server_status & SERVER_STATUS_IN_TRANS)
 
     async def _get_server_information(self):
         i = 0
@@ -947,7 +953,7 @@ class Connection:
 
         i += 1
         # AUTH PLUGIN NAME may appear here.
-        if self.server_capabilities & CLIENT.PLUGIN_AUTH and len(data) >= i:
+        if self.server_capabilities & PLUGIN_AUTH and len(data) >= i:
             # Due to Bug#59453 the auth-plugin-name is missing the terminating
             # NUL-char in versions prior to 5.5.10 and 5.6.2.
             # ref: https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::Handshake
@@ -1055,16 +1061,16 @@ class MySQLResult:
 
         ok_packet = await self.connection.read_packet()
         if not ok_packet.is_ok_packet():  # pragma: no cover - upstream induced protocol error
-            raise errors.OperationalError(CR.CR_COMMANDS_OUT_OF_SYNC, "Commands Out of Sync")
+            raise errors.OperationalError(CR_COMMANDS_OUT_OF_SYNC, "Commands Out of Sync")
         self._read_ok_packet(ok_packet)
 
     def _check_packet_is_eof(self, packet):
         if not packet.is_eof_packet():
             return False
-        # TODO: Support CLIENT.DEPRECATE_EOF
+        # TODO: Support DEPRECATE_EOF
         # 1) Add DEPRECATE_EOF to CAPABILITIES
         # 2) Mask CAPABILITIES with server_capabilities
-        # 3) if server_capabilities & CLIENT.DEPRECATE_EOF: use OKPacketWrapper instead of EOFPacketWrapper
+        # 3) if server_capabilities & DEPRECATE_EOF: use OKPacketWrapper instead of EOFPacketWrapper
         wp = EOFPacketWrapper(packet)
         self.warning_count = wp.warning_count
         self.has_next = wp.has_next
@@ -1147,7 +1153,7 @@ class MySQLResult:
             description.append(field.description())
             field_type = field.type_code
             if use_unicode:
-                if field_type == FIELD_TYPE.JSON:
+                if field_type == JSON:
                     # When SELECT from JSON column: charset = binary
                     # When SELECT CAST(... AS JSON): charset = connection encoding
                     # This behavior is different from TEXT / BLOB.
@@ -1198,7 +1204,7 @@ class LoadLocalFile:
                         break
                     await conn.write_packet(chunk)
         except IOError:
-            raise errors.OperationalError(ER.FILE_NOT_FOUND, f"Can't find file '{self.filename}'")
+            raise errors.OperationalError(FILE_NOT_FOUND, f"Can't find file '{self.filename}'")
         finally:
             # send the empty packet to signify we are done sending data
             await conn.write_packet(b"")
