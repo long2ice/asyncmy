@@ -78,7 +78,8 @@ if __name__ == '__main__':
 
 ## ThanksTo
 
-- [pymysql](https://github/pymysql/PyMySQL)，a pure python MySQL client.
+- [pymysql](https://github/pymysql/PyMySQL), a pure python MySQL client.
+- [aiomysql](https://github.com/aio-libs/aiomysql), a library for accessing a MySQL database from the asyncio.
 
 ## License
 

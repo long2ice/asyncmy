@@ -397,10 +397,7 @@ class Connection:
         if isinstance(obj, str):
             return "'" + self.escape_string(obj) + "'"
         if isinstance(obj, (bytes, bytearray)):
-            ret = self._quote_bytes(obj)
-            if self._binary_prefix:
-                ret = "_binary" + ret
-            return ret
+            return converters.escape_bytes_prefixed(obj)
         return converters.escape_item(obj, self._charset, mapping=mapping)
 
     def literal(self, obj):

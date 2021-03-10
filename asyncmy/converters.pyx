@@ -45,10 +45,10 @@ cpdef escape_set(set val, str charset, mapping=None):
 cpdef escape_bool(int value, mapping=None):
     return str(int(value))
 
-cpdef escape_int(int value, mapping=None):
+cpdef escape_int(long value, mapping=None):
     return str(value)
 
-cpdef escape_float(float value, mapping=None):
+def escape_float(value, mapping=None):
     s = repr(value)
     if s in ("inf", "nan"):
         raise ProgrammingError("%s can not be used with MySQL" % s)
