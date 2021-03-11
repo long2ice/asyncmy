@@ -88,6 +88,6 @@ async def test_table_ddl(connection):
         await cursor.execute(show_table_sql)
         assert cursor.fetchone() == (
             "alter_table",
-            "CREATE TABLE `alter_table` (\n  `id` int NOT NULL AUTO_INCREMENT,\n  `c` varchar(20) DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci",
+            "CREATE TABLE `alter_table` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `c` varchar(20) DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8",
         )
         await cursor.execute("drop table test.alter_table")

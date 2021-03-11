@@ -1,3 +1,4 @@
+import logging
 import re
 import warnings
 
@@ -12,6 +13,7 @@ RE_INSERT_VALUES = re.compile(
     + r"(\s*(?:ON DUPLICATE.*)?);?\s*\Z",
     re.IGNORECASE | re.DOTALL,
 )
+logger = logging.getLogger("asyncmy.cursors")
 
 
 class Cursor:
@@ -31,7 +33,7 @@ class Cursor:
     #: Default value of max_allowed_packet is 1048576.
     max_stmt_length = 1024000
 
-    def __init__(self, connection):
+    def __init__(self, connection, echo=False):
         self.connection = connection
         self.description = None
         self.rownumber = 0
@@ -40,6 +42,7 @@ class Cursor:
         self._executed = None
         self._result = None
         self._rows = None
+        self._echo = echo
 
     async def close(self):
         """
@@ -167,6 +170,9 @@ class Cursor:
 
         result = await self._query(query)
         self._executed = query
+        if self._echo:
+            logger.info(query)
+            logger.info("%r", args)
         return result
 
     def executemany(self, query, args):
@@ -187,6 +193,9 @@ class Cursor:
         """
         if not args:
             return
+        if self._echo:
+            logger.info("CALL %s", query)
+            logger.info("%r", args)
 
         m = RE_INSERT_VALUES.match(query)
         if m:
@@ -266,6 +275,9 @@ class Cursor:
         disconnected.
         """
         conn = self._get_db()
+        if self._echo:
+            logger.info("CALL %s", procname)
+            logger.info("%r", args)
         if args:
             fmt = f"@_{procname}_%d=%s"
             await self._query(

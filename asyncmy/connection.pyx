@@ -169,6 +169,7 @@ class Connection:
             binary_prefix=False,
             program_name=None,
             server_public_key=None,
+            echo=False,
             loop=None,
             ssl=None,
             db=None,  # deprecated
@@ -211,7 +212,7 @@ class Connection:
             unix_socket = _config("socket", unix_socket)
             port = int(_config("port", port))
             charset = _config("default-character-set", charset)
-
+        self._echo = echo
         self._ssl_context = ssl
         if ssl:
             client_flag |= SSL
@@ -1232,6 +1233,7 @@ def connect(user=None,
             binary_prefix=False,
             program_name=None,
             loop=None,
+            echo=False,
             server_public_key=None,
             ssl=None,
             db=None,  # deprecated
@@ -1263,6 +1265,7 @@ def connect(user=None,
         program_name=program_name,
         loop=loop,
         server_public_key=server_public_key,
+        echo=echo,
         ssl=ssl,
         db=db,  # deprecated
     )

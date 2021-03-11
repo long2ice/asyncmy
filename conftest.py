@@ -12,7 +12,6 @@ connection_kwargs = dict(
     port=3306,
     user="root",
     password=os.getenv("MYSQL_PASS") or "123456",
-    database="test",
 )
 
 
@@ -41,7 +40,7 @@ async def initialize_tests(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("create database if not exists test")
         await cursor.execute(
-            """CREATE TABLE  IF NOT EXISTS `asyncmy`  (
+            """CREATE TABLE  IF NOT EXISTS test.`asyncmy`  (
   `id` int NOT NULL AUTO_INCREMENT,
   `decimal` decimal(10,2) DEFAULT NULL,
   `date` date DEFAULT NULL,
@@ -51,7 +50,7 @@ async def initialize_tests(connection):
   `tinyint` tinyint DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `asyncmy_string_index` (`string`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"""
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"""
         )
 
 

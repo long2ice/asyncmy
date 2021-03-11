@@ -1,14 +1,16 @@
 import asyncio
 import collections
 
-from asyncmy.connection import connect
+from asyncmy.connection import Connection, connect
 from asyncmy.contexts import _PoolAcquireContextManager, _PoolContextManager
 
 
 class Pool(asyncio.AbstractServer):
     """Connection pool, just from aiomysql"""
 
-    def __init__(self, minsize, maxsize, pool_recycle, loop, echo=False, **kwargs):
+    def __init__(
+        self, minsize: int, maxsize: int, pool_recycle: int, loop, echo: bool = False, **kwargs
+    ):
         if minsize < 0:
             raise ValueError("minsize should be zero or greater")
         if maxsize < minsize:
@@ -18,7 +20,7 @@ class Pool(asyncio.AbstractServer):
         self._conn_kwargs = kwargs
         self._acquiring = 0
         self._free = collections.deque(maxlen=maxsize)
-        self._cond = asyncio.Condition(loop=loop)
+        self._cond = asyncio.Condition()
         self._used = set()
         self._terminated = set()
         self._closing = False
@@ -29,6 +31,10 @@ class Pool(asyncio.AbstractServer):
     @property
     def echo(self):
         return self._echo
+
+    @property
+    def cond(self):
+        return self._cond
 
     @property
     def minsize(self):
@@ -106,7 +112,7 @@ class Pool(asyncio.AbstractServer):
             raise RuntimeError("Cannot acquire connection after closing pool")
         async with self._cond:
             while True:
-                await self._fill_free_pool(True)
+                await self.fill_free_pool(True)
                 if self._free:
                     conn = self._free.popleft()
                     self._used.add(conn)
@@ -114,7 +120,7 @@ class Pool(asyncio.AbstractServer):
                 else:
                     await self._cond.wait()
 
-    async def _fill_free_pool(self, override_min):
+    async def fill_free_pool(self, override_min: bool = False):
         # iterate over free connections and remove timeouted ones
         free_size = len(self._free)
         n = 0
@@ -158,7 +164,7 @@ class Pool(asyncio.AbstractServer):
         async with self._cond:
             self._cond.notify()
 
-    def release(self, conn):
+    def release(self, conn: Connection):
         """
         Release free connection back to the connection pool.
 
@@ -183,14 +189,6 @@ class Pool(asyncio.AbstractServer):
             fut = self._loop.create_task(self._wakeup())
         return fut
 
-    def __enter__(self):
-        raise RuntimeError('"yield from" should be used as context manager expression')
-
-    def __exit__(self, *args):
-        # This must exist because __enter__ exists, even though that
-        # always raises; that's how the with-statement works.
-        pass  # pragma: nocover
-
     async def __aenter__(self):
         return self
 
@@ -199,14 +197,18 @@ class Pool(asyncio.AbstractServer):
         await self.wait_closed()
 
 
-def create_pool(minsize=1, maxsize=10, echo=False, pool_recycle=-1, loop=None, **kwargs):
+def create_pool(
+    minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, loop=None, **kwargs
+):
     coro = _create_pool(
         minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, loop=loop, **kwargs
     )
     return _PoolContextManager(coro)
 
 
-async def _create_pool(minsize=1, maxsize=10, echo=False, pool_recycle=-1, loop=None, **kwargs):
+async def _create_pool(
+    minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, loop=None, **kwargs
+):
     if loop is None:
         loop = asyncio.get_event_loop()
 
@@ -214,6 +216,6 @@ async def _create_pool(minsize=1, maxsize=10, echo=False, pool_recycle=-1, loop=
         minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, loop=loop, **kwargs
     )
     if minsize > 0:
-        async with pool._cond:
-            await pool._fill_free_pool(False)
+        async with pool.cond:
+            await pool.fill_free_pool(False)
     return pool
