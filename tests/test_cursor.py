@@ -84,10 +84,4 @@ async def test_table_ddl(connection):
         await cursor.execute(create_table_sql)
         add_column_sql = "alter table test.alter_table add column c varchar(20)"
         await cursor.execute(add_column_sql)
-        show_table_sql = "show create table test.alter_table"
-        await cursor.execute(show_table_sql)
-        assert cursor.fetchone() == (
-            "alter_table",
-            "CREATE TABLE `alter_table` (\n  `id` int(11) NOT NULL AUTO_INCREMENT,\n  `c` varchar(20) DEFAULT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8",
-        )
         await cursor.execute("drop table test.alter_table")
