@@ -128,5 +128,5 @@ dmypy.json
 # Pyre type checker
 .pyre/
 .idea
-*.c
+asyncmy/*.c
 cython_debug

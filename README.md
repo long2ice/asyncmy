@@ -14,7 +14,9 @@ core with [cython](https://cython.org/) to speedup.
 
 The result comes from [benchmark](./benchmark), we can know `asyncmy` performs well when compared to other drivers.
 
-![](./images/benchmark.png)
+> The device is MacBook Pro (13-inch, M1, 2020) 16G and MySQL version is 8.0.23.
+
+![benchmark](./images/benchmark.png)
 
 ## Install
 
