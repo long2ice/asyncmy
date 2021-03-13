@@ -1,17 +1,14 @@
 import struct
 
-include "charset.pxd"
-include "constants/SERVER_STATUS.pxi"
-include "constants/FIELD_TYPE.pxi"
+from .constants.COLUMN import (NULL_COLUMN, UNSIGNED_CHAR_COLUMN,
+                               UNSIGNED_INT24_COLUMN, UNSIGNED_INT64_COLUMN,
+                               UNSIGNED_SHORT_COLUMN)
+from .constants.FIELD_TYPE import VAR_STRING
+from .constants.SERVER_STATUS import SERVER_MORE_RESULTS_EXISTS
 
+include "charset.pxd"
 from . import errors
 
-
-cdef int NULL_COLUMN = 251
-cdef int UNSIGNED_CHAR_COLUMN = 251
-cdef int UNSIGNED_SHORT_COLUMN = 252
-cdef int UNSIGNED_INT24_COLUMN = 253
-cdef int UNSIGNED_INT64_COLUMN = 254
 
 cdef class MysqlPacket:
     """
@@ -30,7 +27,7 @@ cdef class MysqlPacket:
     cpdef bytes get_all_data(self):
         return self._data
 
-    cdef bytes read(self, int size):
+    cpdef bytes read(self, int size):
         """
         Read the first 'size' bytes in packet and advance cursor past them.
         :param size: 

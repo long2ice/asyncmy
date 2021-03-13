@@ -14,20 +14,27 @@ from typing import Optional, Type
 
 from asyncmy import auth, converters, errors
 from asyncmy.charset import charset_by_id, charset_by_name
+from asyncmy.cursors import Cursor
+from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
                               OKPacketWrapper)
 
-include "constants/ER.pxi"
-include "constants/CLIENT.pxi"
-include "constants/COMMAND.pxi"
-include "constants/CR.pxi"
-include "constants/FIELD_TYPE.pxi"
-include "constants/SERVER_STATUS.pxi"
-
-from asyncmy.cursors import Cursor
-from asyncmy.optionfile import Parser
-
+from .constants.CLIENT import (CAPABILITIES, CONNECT_ATTRS, CONNECT_WITH_DB,
+                               LOCAL_FILES, MULTI_RESULTS, MULTI_STATEMENTS,
+                               PLUGIN_AUTH, PLUGIN_AUTH_LENENC_CLIENT_DATA,
+                               SECURE_CONNECTION, SSL)
+from .constants.COMMAND import (COM_INIT_DB, COM_PING, COM_PROCESS_KILL,
+                                COM_QUERY, COM_QUIT)
+from .constants.CR import (CR_COMMANDS_OUT_OF_SYNC, CR_CONN_HOST_ERROR,
+                           CR_SERVER_LOST)
+from .constants.ER import FILE_NOT_FOUND
+from .constants.FIELD_TYPE import (BIT, BLOB, GEOMETRY, JSON, LONG_BLOB,
+                                   MEDIUM_BLOB, STRING, TINY_BLOB, VAR_STRING,
+                                   VARCHAR)
+from .constants.SERVER_STATUS import (SERVER_STATUS_AUTOCOMMIT,
+                                      SERVER_STATUS_IN_TRANS,
+                                      SERVER_STATUS_NO_BACKSLASH_ESCAPES)
 from .contexts import _ConnectionContextManager
 from .version import __VERSION__
 

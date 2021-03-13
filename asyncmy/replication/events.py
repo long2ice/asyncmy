@@ -12,6 +12,11 @@ class BinLogEvent:
         event_size,
         table_map,
         connection,
+        only_tables=None,
+        ignored_tables=None,
+        only_schemas=None,
+        ignored_schemas=None,
+        freeze_schema=None,
         fail_on_table_metadata_unavailable=False,
     ):
         self.packet = from_packet
@@ -60,9 +65,6 @@ class GtidEvent(BinLogEvent):
             self.gno,
         )
         return gtid
-
-    def __repr__(self):
-        return '<GtidEvent "%s">' % self.gtid
 
 
 class RotateEvent(BinLogEvent):

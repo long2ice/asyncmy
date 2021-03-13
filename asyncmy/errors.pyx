@@ -1,6 +1,7 @@
 import struct
 
-include "constants/ER.pxi"
+from .constants.ER import *
+
 
 cdef class MySQLError(Exception):
     """Exception related to operation with MySQL."""

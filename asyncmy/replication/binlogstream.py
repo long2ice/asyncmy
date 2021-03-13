@@ -2,12 +2,10 @@ import struct
 from typing import List, Optional, Set, Type, Union
 
 from asyncmy import Connection
+from asyncmy.constants.COMMAND import COM_BINLOG_DUMP, COM_BINLOG_DUMP_GTID, COM_REGISTER_SLAVE
 from asyncmy.replication.constants import (
     BINLOG_DUMP_NON_BLOCK,
     BINLOG_THROUGH_GTID,
-    COM_BINLOG_DUMP,
-    COM_BINLOG_DUMP_GTID,
-    COM_REGISTER_SLAVE,
     MAX_HEARTBEAT,
     ROTATE_EVENT,
     TABLE_MAP_EVENT,
@@ -112,7 +110,13 @@ class BinLogStream:
         filter_non_implemented_events: bool = True,
         only_tables: Optional[List[str]] = None,
         ignored_tables: Optional[List[str]] = None,
+        only_schemas: Optional[List[str]] = None,
+        ignored_schemas: Optional[List[str]] = None,
+        freeze_schema: bool = False,
     ):
+        self._freeze_schema = freeze_schema
+        self._ignored_schemas = ignored_schemas
+        self._only_schemas = only_schemas
         self._ignored_tables = ignored_tables
         self._only_tables = only_tables
         self._skip_to_timestamp = skip_to_timestamp
@@ -125,6 +129,7 @@ class BinLogStream:
         self._slave_heartbeat = slave_heartbeat
         self._slave_uuid = slave_uuid
         self._connection = connection
+        self._connection._get_table_information = self._get_table_information
         self._use_checksum = False
         self._connected = False
         self._report_slave = None
@@ -136,6 +141,7 @@ class BinLogStream:
         self._allowed_events_in_packet = frozenset([TableMapEvent, RotateEvent]).union(
             self._allowed_events
         )
+        self._table_map = {}
 
     @staticmethod
     def _allowed_event_list(
@@ -192,7 +198,7 @@ class BinLogStream:
             if not self._master_auto_position:
                 if self._master_log_file is None or self._master_log_position is None:
                     await cursor.execute("SHOW MASTER STATUS")
-                    master_status = await cursor.fetchone()
+                    master_status = cursor.fetchone()
                     if master_status is None:
                         raise BinLogNotEnabled("MySQL binary logging is not enabled.")
                     self._master_log_file, self._master_log_position = master_status[:2]
@@ -263,12 +269,12 @@ class BinLogStream:
             await self._connection.ensure_closed()
             self._connected = False
 
-    async def fetchone(self):
+    async def _read(self):
         while True:
             if not self._connected:
                 await self.connect()
 
-            pkt = self._connection.read_packet()
+            pkt = await self._connection.read_packet()
             if pkt.is_eof_packet():
                 await self.close()
                 return None
@@ -278,25 +284,28 @@ class BinLogStream:
 
             binlog_event = BinLogPacket(
                 pkt,
-                self.table_map,
+                self._table_map,
                 self._connection,
                 self._use_checksum,
                 self._allowed_events_in_packet,
                 self._only_tables,
                 self._ignored_tables,
+                self._only_schemas,
+                self._ignored_schemas,
+                self._freeze_schema,
             )
 
             if binlog_event.event_type == ROTATE_EVENT:
                 self._master_log_position = binlog_event.event.position
                 self._master_log_file = binlog_event.event.next_binlog
-                self.table_map = {}
+                self._table_map = {}
             elif binlog_event.log_pos:
                 self._master_log_position = binlog_event.log_pos
             if self._skip_to_timestamp and binlog_event.timestamp < self._skip_to_timestamp:
                 continue
 
             if binlog_event.event_type == TABLE_MAP_EVENT and binlog_event.event is not None:
-                self.table_map[binlog_event.event.table_id] = binlog_event.event.get_table()
+                self._table_map[binlog_event.event.table_id] = binlog_event.event.table
 
             if binlog_event.event is None or (
                 binlog_event.event.__class__ not in self._allowed_events
@@ -308,7 +317,7 @@ class BinLogStream:
     async def _checksum_enable(self):
         async with self._connection.cursor() as cursor:
             await cursor.execute("SHOW GLOBAL VARIABLES LIKE 'BINLOG_CHECKSUM'")
-            result = await cursor.fetchone()
+            result = cursor.fetchone()
             if result is None:
                 return False
             var, value = result[:2]
@@ -323,3 +332,30 @@ class BinLogStream:
         self._connection._write_bytes(packet)
         self._connection._next_seq_id = 1
         await self._connection.read_packet()
+
+    async def _get_table_information(self, schema, table):
+        async with self._connection.cursor() as cursor:
+            await cursor.execute(
+                """
+                    SELECT
+                        COLUMN_NAME, COLLATION_NAME, CHARACTER_SET_NAME,
+                        COLUMN_COMMENT, COLUMN_TYPE, COLUMN_KEY, ORDINAL_POSITION
+                    FROM
+                        information_schema.columns
+                    WHERE
+                        table_schema = %s AND table_name = %s
+                    ORDER BY ORDINAL_POSITION
+                    """,
+                (schema, table),
+            )
+
+            return cursor.fetchall()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await self._read()
+        except StopIteration:
+            raise StopAsyncIteration

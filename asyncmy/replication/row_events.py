@@ -5,36 +5,17 @@ import struct
 from pymysql.charset import charset_by_name
 from pymysql.util import byte2int
 
+from asyncmy.constants.FIELD_TYPE import *
+
 from .bitmap import bit_count, bit_get
 from .column import Column
 from .constants import (
-    BIT,
-    BLOB,
-    DATE,
-    DATETIME,
     DATETIME2,
     DELETE_ROWS_EVENT_V2,
-    DOUBLE,
-    ENUM,
-    FLOAT,
-    GEOMETRY,
-    INT24,
-    JSON,
-    LONG,
-    LONGLONG,
-    NEWDECIMAL,
-    SET,
-    SHORT,
-    STRING,
-    TIME,
     TIME2,
-    TIMESTAMP,
     TIMESTAMP2,
-    TINY,
     UPDATE_ROWS_EVENT_V2,
-    VARCHAR,
     WRITE_ROWS_EVENT_V2,
-    YEAR,
 )
 from .errors import TableMetadataUnavailableError
 from .events import BinLogEvent
@@ -504,11 +485,11 @@ class UpdateRowsEvent(RowsEvent):
             self.columns_present_bitmap2 = self.packet.read((self.number_of_columns + 7) / 8)
 
     def _fetch_one_row(self):
-        row = {}
+        row = {
+            "before_values": self._read_column_data(self.columns_present_bitmap),
+            "after_values": self._read_column_data(self.columns_present_bitmap2),
+        }
 
-        row["before_values"] = self._read_column_data(self.columns_present_bitmap)
-
-        row["after_values"] = self._read_column_data(self.columns_present_bitmap2)
         return row
 
 
@@ -518,20 +499,20 @@ class TableMapEvent(BinLogEvent):
     An end user of the lib should have no usage of this
     """
 
-    def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
+    def __init__(self, from_packet, event_size, table_map, connection, **kwargs):
         super(TableMapEvent, self).__init__(
-            from_packet, event_size, table_map, ctl_connection, **kwargs
+            from_packet, event_size, table_map, connection, **kwargs
         )
-        self.__only_tables = kwargs["only_tables"]
-        self.__ignored_tables = kwargs["ignored_tables"]
-        self.__only_schemas = kwargs["only_schemas"]
-        self.__ignored_schemas = kwargs["ignored_schemas"]
-        self.__freeze_schema = kwargs["freeze_schema"]
+        self._only_tables = kwargs["only_tables"]
+        self._ignored_tables = kwargs["ignored_tables"]
+        self._only_schemas = kwargs["only_schemas"]
+        self._ignored_schemas = kwargs["ignored_schemas"]
+        self._freeze_schema = kwargs["freeze_schema"]
 
         # Post-Header
         self.table_id = self._read_table_id()
 
-        if self.table_id in table_map and self.__freeze_schema:
+        if self.table_id in table_map and self._freeze_schema:
             self._processed = False
             return
 
@@ -542,19 +523,19 @@ class TableMapEvent(BinLogEvent):
         self.schema = self.packet.read(self.schema_length).decode()
         self.packet.advance(1)
         self.table_length = byte2int(self.packet.read(1))
-        self.table = self.packet.read(self.table_length).decode()
+        self.table_name = self.packet.read(self.table_length).decode()
+        schema_table = f"{self.schema}.{self.table_name}"
+        if self._only_tables is not None and schema_table not in self._only_tables:
+            self._processed = False
+            return
+        elif self._ignored_tables is not None and schema_table in self._ignored_tables:
+            self._processed = False
+            return
 
-        if self.__only_tables is not None and self.table not in self.__only_tables:
+        if self._only_schemas is not None and self.schema not in self._only_schemas:
             self._processed = False
             return
-        elif self.__ignored_tables is not None and self.table in self.__ignored_tables:
-            self._processed = False
-            return
-
-        if self.__only_schemas is not None and self.schema not in self.__only_schemas:
-            self._processed = False
-            return
-        elif self.__ignored_schemas is not None and self.schema in self.__ignored_schemas:
+        elif self._ignored_schemas is not None and self.schema in self._ignored_schemas:
             self._processed = False
             return
 
@@ -566,7 +547,9 @@ class TableMapEvent(BinLogEvent):
         if self.table_id in table_map:
             self.column_schemas = table_map[self.table_id].column_schemas
         else:
-            self.column_schemas = self._connection._get_table_information(self.schema, self.table)
+            self.column_schemas = self._connection._get_table_information(
+                self.schema, self.table_name
+            )
 
         ordinal_pos_loc = 0
 
@@ -602,9 +585,10 @@ class TableMapEvent(BinLogEvent):
                 col = Column(byte2int(column_type), column_schema, from_packet)
                 self.columns.append(col)
 
-        self.table_obj = Table(
-            self.column_schemas, self.table_id, self.schema, self.table, self.columns
+        self._table = Table(
+            self.column_schemas, self.table_id, self.schema, self.table_name, self.columns
         )
 
-    def get_table(self):
-        return self.table_obj
+    @property
+    def table(self):
+        return self._table

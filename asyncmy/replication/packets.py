@@ -1,6 +1,6 @@
 import struct
 
-from asyncmy.protocol import (
+from asyncmy.constants.COLUMN import (
     NULL_COLUMN,
     UNSIGNED_CHAR_COLUMN,
     UNSIGNED_INT24_COLUMN,
@@ -48,6 +48,7 @@ from asyncmy.replication.constants import (
     WRITE_ROWS_EVENT_V2,
     XID_EVENT,
 )
+from asyncmy.replication.utils import byte2int
 
 
 class BinLogPacket:
@@ -85,11 +86,13 @@ class BinLogPacket:
         allowed_events,
         only_tables,
         ignored_tables,
+        only_schemas,
+        ignored_schemas,
+        freeze_schema,
     ):
         self.read_bytes = 0
         self._data_buffer = b""
-        self.packet = packet
-        self.charset = connection.charset
+        self._packet = packet
 
         # OK value
         # timestamp
@@ -97,11 +100,11 @@ class BinLogPacket:
         # server_id
         # log_pos
         # flags
-        unpack = struct.unpack("<cIcIIIH", self.packet.read(20))
+        unpack = struct.unpack("<cIcIIIH", self._packet.read(20))
 
         # Header
         self.timestamp = unpack[1]
-        self.event_type = struct.pack("!B", unpack[2])
+        self.event_type = byte2int(unpack[2])
         self.server_id = unpack[3]
         self.event_size = unpack[4]
         # position of the next event
@@ -126,8 +129,11 @@ class BinLogPacket:
             connection,
             only_tables=only_tables,
             ignored_tables=ignored_tables,
+            only_schemas=only_schemas,
+            ignored_schemas=ignored_schemas,
+            freeze_schema=freeze_schema,
         )
-        if self.event._processed == False:
+        if self.event._processed is False:
             self.event = None
 
     def read(self, size):
@@ -139,8 +145,8 @@ class BinLogPacket:
             if len(data) == size:
                 return data
             else:
-                return data + self.packet.read(size - len(data))
-        return self.packet.read(size)
+                return data + self._packet.read(size - len(data))
+        return self._packet.read(size)
 
     def unread(self, data):
         self.read_bytes -= len(data)
@@ -153,12 +159,12 @@ class BinLogPacket:
         if buffer_len > 0:
             self._data_buffer = self._data_buffer[size:]
             if size > buffer_len:
-                self.packet.advance(size - buffer_len)
+                self._packet.advance(size - buffer_len)
         else:
-            self.packet.advance(size)
+            self._packet.advance(size)
 
     def read_length_coded_binary(self):
-        c = struct.pack("!B", self.read(1))
+        c = byte2int(self.read(1))
         if c == NULL_COLUMN:
             return None
         if c < UNSIGNED_CHAR_COLUMN:
@@ -185,8 +191,8 @@ class BinLogPacket:
         return self.read(length).decode()
 
     def __getattr__(self, key):
-        if hasattr(self.packet, key):
-            return getattr(self.packet, key)
+        if hasattr(self._packet, key):
+            return getattr(self._packet, key)
 
         raise AttributeError("%s instance has no attribute '%s'" % (self.__class__, key))
 

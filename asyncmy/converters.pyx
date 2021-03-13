@@ -3,7 +3,7 @@ import re
 import time
 from decimal import Decimal
 
-include "constants/FIELD_TYPE.pxi"
+from .constants.FIELD_TYPE import *
 from .errors import ProgrammingError
 
 
