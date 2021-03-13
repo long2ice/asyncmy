@@ -465,14 +465,6 @@ class DeleteRowsEvent(RowsEvent):
         row["values"] = self._read_column_data(self.columns_present_bitmap)
         return row
 
-    def _dump(self):
-        super(DeleteRowsEvent, self)._dump()
-        print("Values:")
-        for row in self.rows:
-            print("--")
-            for key in row["values"]:
-                print("*", key, ":", row["values"][key])
-
 
 class WriteRowsEvent(RowsEvent):
     """This event is triggered when a row in database is added
@@ -518,15 +510,6 @@ class UpdateRowsEvent(RowsEvent):
 
         row["after_values"] = self._read_column_data(self.columns_present_bitmap2)
         return row
-
-    def _dump(self):
-        super(UpdateRowsEvent, self)._dump()
-        print("Affected columns: %d" % self.number_of_columns)
-        print("Values:")
-        for row in self.rows:
-            print("--")
-            for key in row["before_values"]:
-                print("*%s:%s=>%s" % (key, row["before_values"][key], row["after_values"][key]))
 
 
 class TableMapEvent(BinLogEvent):
@@ -583,9 +566,7 @@ class TableMapEvent(BinLogEvent):
         if self.table_id in table_map:
             self.column_schemas = table_map[self.table_id].column_schemas
         else:
-            self.column_schemas = self._ctl_connection._get_table_information(
-                self.schema, self.table
-            )
+            self.column_schemas = self._connection._get_table_information(self.schema, self.table)
 
         ordinal_pos_loc = 0
 
@@ -625,15 +606,5 @@ class TableMapEvent(BinLogEvent):
             self.column_schemas, self.table_id, self.schema, self.table, self.columns
         )
 
-        # TODO: get this information instead of trashing data
-        # n              NULL-bitmask, length: (column-length * 8) / 7
-
     def get_table(self):
         return self.table_obj
-
-    def _dump(self):
-        super(TableMapEvent, self)._dump()
-        print("Table id: %d" % (self.table_id))
-        print("Schema: %s" % (self.schema))
-        print("Table: %s" % (self.table))
-        print("Columns: %s" % (self.column_count))

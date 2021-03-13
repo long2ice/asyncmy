@@ -29,6 +29,3 @@ class Table:
 
     def __ne__(self, other):
         return not self.__eq__(other)
-
-    def serializable_data(self):
-        return self.data

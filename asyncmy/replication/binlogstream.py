@@ -1,5 +1,5 @@
 import struct
-from typing import Optional, Set, Union, List, Type
+from typing import List, Optional, Set, Type, Union
 
 from asyncmy import Connection
 from asyncmy.replication.constants import (
@@ -13,11 +13,27 @@ from asyncmy.replication.constants import (
     TABLE_MAP_EVENT,
 )
 from asyncmy.replication.errors import BinLogNotEnabled
-from asyncmy.replication.events import BinLogEvent, NotImplementedEvent, QueryEvent, RotateEvent, StopEvent, \
-    FormatDescriptionEvent, XidEvent, GtidEvent, BeginLoadQueryEvent, ExecuteLoadQueryEvent, HeartbeatLogEvent
+from asyncmy.replication.events import (
+    BeginLoadQueryEvent,
+    BinLogEvent,
+    ExecuteLoadQueryEvent,
+    FormatDescriptionEvent,
+    GtidEvent,
+    HeartbeatLogEvent,
+    NotImplementedEvent,
+    QueryEvent,
+    RotateEvent,
+    StopEvent,
+    XidEvent,
+)
 from asyncmy.replication.gtid import Gtid, GtidSet
 from asyncmy.replication.packets import BinLogPacket
-from asyncmy.replication.row_events import UpdateRowsEvent, WriteRowsEvent, DeleteRowsEvent, TableMapEvent
+from asyncmy.replication.row_events import (
+    DeleteRowsEvent,
+    TableMapEvent,
+    UpdateRowsEvent,
+    WriteRowsEvent,
+)
 
 
 class ReportSlave:
@@ -49,52 +65,56 @@ class ReportSlave:
         len_password = len(self._password.encode())
 
         packet_len = (
-                1
-                + 4  # command
-                + 1  # server-id
-                + len_hostname  # hostname length
-                + 1
-                + len_username  # username length
-                + 1
-                + len_password  # password length
-                + 2
-                + 4  # slave mysql port
-                + 4  # replication rank
+            1
+            + 4  # command
+            + 1  # server-id
+            + len_hostname  # hostname length
+            + 1
+            + len_username  # username length
+            + 1
+            + len_password  # password length
+            + 2
+            + 4  # slave mysql port
+            + 4  # replication rank
         )  # master-id
 
         max_string_len = 257  # one byte for length + 256 chars
 
         return (
-                struct.pack("<i", packet_len)
-                + struct.pack("!B", COM_REGISTER_SLAVE)
-                + struct.pack("<L", server_id)
-                + struct.pack("<%dp" % min(max_string_len, len_hostname + 1), self._hostname.encode())
-                + struct.pack("<%dp" % min(max_string_len, len_username + 1), self._username.encode())
-                + struct.pack("<%dp" % min(max_string_len, len_password + 1), self._password.encode())
-                + struct.pack("<H", self._port)
-                + struct.pack("<l", 0)
-                + struct.pack("<l", master_id)
+            struct.pack("<i", packet_len)
+            + struct.pack("!B", COM_REGISTER_SLAVE)
+            + struct.pack("<L", server_id)
+            + struct.pack("<%dp" % min(max_string_len, len_hostname + 1), self._hostname.encode())
+            + struct.pack("<%dp" % min(max_string_len, len_username + 1), self._username.encode())
+            + struct.pack("<%dp" % min(max_string_len, len_password + 1), self._password.encode())
+            + struct.pack("<H", self._port)
+            + struct.pack("<l", 0)
+            + struct.pack("<l", master_id)
         )
 
 
 class BinLogStream:
     def __init__(
-            self,
-            connection: Connection,
-            server_id: int,
-            slave_uuid: Optional[str] = None,
-            slave_heartbeat: Optional[int] = None,
-            report_slave: Optional[Union[str, tuple, dict]] = None,
-            master_log_file: Optional[str] = None,
-            master_log_position: Optional[int] = None,
-            master_auto_position: Optional[Set[Gtid]] = None,
-            resume_stream: bool = False,
-            blocking: bool = False,
-            skip_to_timestamp: Optional[int] = None,
-            only_events: Optional[List[Type[BinLogEvent]]] = None,
-            ignored_events: Optional[List[Type[BinLogEvent]]] = None,
-            filter_non_implemented_events: bool = True,
+        self,
+        connection: Connection,
+        server_id: int,
+        slave_uuid: Optional[str] = None,
+        slave_heartbeat: Optional[int] = None,
+        report_slave: Optional[Union[str, tuple, dict]] = None,
+        master_log_file: Optional[str] = None,
+        master_log_position: Optional[int] = None,
+        master_auto_position: Optional[Set[Gtid]] = None,
+        resume_stream: bool = False,
+        blocking: bool = False,
+        skip_to_timestamp: Optional[int] = None,
+        only_events: Optional[List[Type[BinLogEvent]]] = None,
+        ignored_events: Optional[List[Type[BinLogEvent]]] = None,
+        filter_non_implemented_events: bool = True,
+        only_tables: Optional[List[str]] = None,
+        ignored_tables: Optional[List[str]] = None,
     ):
+        self._ignored_tables = ignored_tables
+        self._only_tables = only_tables
         self._skip_to_timestamp = skip_to_timestamp
         self._blocking = blocking
         self._resume_stream = resume_stream
@@ -111,19 +131,37 @@ class BinLogStream:
         if report_slave:
             self._report_slave = ReportSlave(report_slave)
         self._allowed_events = self._allowed_event_list(
-            only_events, ignored_events, filter_non_implemented_events)
-        self.__allowed_events_in_packet = frozenset(
-            [TableMapEvent, RotateEvent]).union(self._allowed_events)
+            only_events, ignored_events, filter_non_implemented_events
+        )
+        self._allowed_events_in_packet = frozenset([TableMapEvent, RotateEvent]).union(
+            self._allowed_events
+        )
 
     @staticmethod
-    def _allowed_event_list(only_events: Optional[List[Type[BinLogEvent]]],
-                            ignored_events: Optional[List[Type[BinLogEvent]]], filter_non_implemented_events: bool):
+    def _allowed_event_list(
+        only_events: Optional[List[Type[BinLogEvent]]],
+        ignored_events: Optional[List[Type[BinLogEvent]]],
+        filter_non_implemented_events: bool,
+    ):
         if only_events is not None:
             events = set(only_events)
         else:
-            events = {QueryEvent, RotateEvent, StopEvent, FormatDescriptionEvent, XidEvent, GtidEvent,
-                      BeginLoadQueryEvent, ExecuteLoadQueryEvent, UpdateRowsEvent, WriteRowsEvent, DeleteRowsEvent,
-                      TableMapEvent, HeartbeatLogEvent, NotImplementedEvent}
+            events = {
+                QueryEvent,
+                RotateEvent,
+                StopEvent,
+                FormatDescriptionEvent,
+                XidEvent,
+                GtidEvent,
+                BeginLoadQueryEvent,
+                ExecuteLoadQueryEvent,
+                UpdateRowsEvent,
+                WriteRowsEvent,
+                DeleteRowsEvent,
+                TableMapEvent,
+                HeartbeatLogEvent,
+                NotImplementedEvent,
+            }
         if ignored_events is not None:
             for e in ignored_events:
                 events.remove(e)
@@ -179,18 +217,18 @@ class BinLogStream:
                 encoded_data_size = gtid_set.encoded_length
 
                 header_size = (
-                        2
-                        + 4  # binlog_flags
-                        + 4  # server_id
-                        + 4  # binlog_name_info_size
-                        + 8  # empty binlog name
-                        + 4  # binlog_pos_info_size
+                    2
+                    + 4  # binlog_flags
+                    + 4  # server_id
+                    + 4  # binlog_name_info_size
+                    + 8  # empty binlog name
+                    + 4  # binlog_pos_info_size
                 )  # encoded_data_size
 
                 prelude = (
-                        b""
-                        + struct.pack("<i", header_size + encoded_data_size)
-                        + struct.pack("!B", COM_BINLOG_DUMP_GTID)
+                    b""
+                    + struct.pack("<i", header_size + encoded_data_size)
+                    + struct.pack("!B", COM_BINLOG_DUMP_GTID)
                 )
 
                 flags = 0
@@ -243,13 +281,9 @@ class BinLogStream:
                 self.table_map,
                 self._connection,
                 self._use_checksum,
-                self.__allowed_events_in_packet,
-                self.__only_tables,
-                self.__ignored_tables,
-                self.__only_schemas,
-                self.__ignored_schemas,
-                self.__freeze_schema,
-                self.__fail_on_table_metadata_unavailable,
+                self._allowed_events_in_packet,
+                self._only_tables,
+                self._ignored_tables,
             )
 
             if binlog_event.event_type == ROTATE_EVENT:
@@ -265,7 +299,7 @@ class BinLogStream:
                 self.table_map[binlog_event.event.table_id] = binlog_event.event.get_table()
 
             if binlog_event.event is None or (
-                    binlog_event.event.__class__ not in self.__allowed_events
+                binlog_event.event.__class__ not in self._allowed_events
             ):
                 continue
 
@@ -288,4 +322,4 @@ class BinLogStream:
         packet = self._report_slave.encoded(self._server_id)
         self._connection._write_bytes(packet)
         self._connection._next_seq_id = 1
-        await self._connection._read_packet()
+        await self._connection.read_packet()

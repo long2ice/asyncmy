@@ -25,7 +25,7 @@ class Gtid:
             raise ValueError("GTID format is incorrect: %r" % (interval,))
         a = int(m.group(1))
         b = int(m.group(2) or a)
-        return (a, b + 1)
+        return a, b + 1
 
     @staticmethod
     def parse(gtid: str):
@@ -153,11 +153,11 @@ class Gtid:
     @property
     def encoded_length(self):
         return (
-                16
-                + 8  # sid
-                + 2  # n_intervals
-                * 8  # stop/start
-                * len(self.intervals)  # stop/start mark encoded as int64
+            16
+            + 8  # sid
+            + 2  # n_intervals
+            * 8  # stop/start
+            * len(self.intervals)  # stop/start mark encoded as int64
         )
 
     def encode(self):
@@ -277,7 +277,7 @@ class GtidSet:
 
     def encoded(self):
         return b"" + (
-                struct.pack("<Q", len(self._gtid_set)) + b"".join(x.encode() for x in self._gtid_set)
+            struct.pack("<Q", len(self._gtid_set)) + b"".join(x.encode() for x in self._gtid_set)
         )
 
     encode = encoded
