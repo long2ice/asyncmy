@@ -70,12 +70,6 @@ class Column:
         else:
             self.set_values = enums.replace("set(", "").replace(")", "").replace("'", "").split(",")
 
-    def __eq__(self, other):
-        return self.data == other.data
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
     @property
     def data(self):
         return dict((k, v) for (k, v) in self.__dict__.items() if not k.startswith("_"))

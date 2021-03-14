@@ -3,6 +3,7 @@ from typing import List, Optional, Set, Type, Union
 
 from asyncmy import Connection
 from asyncmy.constants.COMMAND import COM_BINLOG_DUMP, COM_BINLOG_DUMP_GTID, COM_REGISTER_SLAVE
+from asyncmy.cursors import DictCursor
 from asyncmy.replication.constants import (
     BINLOG_DUMP_NON_BLOCK,
     BINLOG_THROUGH_GTID,
@@ -10,7 +11,7 @@ from asyncmy.replication.constants import (
     ROTATE_EVENT,
     TABLE_MAP_EVENT,
 )
-from asyncmy.replication.errors import BinLogNotEnabled
+from asyncmy.replication.errors import BinLogNotEnabledError, StreamClosedError
 from asyncmy.replication.events import (
     BeginLoadQueryEvent,
     BinLogEvent,
@@ -95,6 +96,7 @@ class BinLogStream:
     def __init__(
         self,
         connection: Connection,
+        ctl_connection: Connection,
         server_id: int,
         slave_uuid: Optional[str] = None,
         slave_heartbeat: Optional[int] = None,
@@ -129,7 +131,8 @@ class BinLogStream:
         self._slave_heartbeat = slave_heartbeat
         self._slave_uuid = slave_uuid
         self._connection = connection
-        self._connection._get_table_information = self._get_table_information
+        self._ctl_connection = ctl_connection
+        self._ctl_connection._get_table_information = self._get_table_information
         self._use_checksum = False
         self._connected = False
         self._report_slave = None
@@ -200,7 +203,7 @@ class BinLogStream:
                     await cursor.execute("SHOW MASTER STATUS")
                     master_status = cursor.fetchone()
                     if master_status is None:
-                        raise BinLogNotEnabled("MySQL binary logging is not enabled.")
+                        raise BinLogNotEnabledError("MySQL binary logging is not enabled.")
                     self._master_log_file, self._master_log_position = master_status[:2]
                 prelude = struct.pack("<i", len(self._master_log_file) + 11) + struct.pack(
                     "!B", COM_BINLOG_DUMP
@@ -270,49 +273,47 @@ class BinLogStream:
             self._connected = False
 
     async def _read(self):
-        while True:
-            if not self._connected:
-                await self.connect()
+        if not self._connected:
+            await self.connect()
 
-            pkt = await self._connection.read_packet()
-            if pkt.is_eof_packet():
-                await self.close()
-                return None
+        pkt = await self._connection.read_packet()
+        if pkt.is_eof_packet():
+            await self.close()
+            raise StreamClosedError("BinLogStream is closed")
 
-            if not pkt.is_ok_packet():
-                continue
+        if not pkt.is_ok_packet():
+            return
 
-            binlog_event = BinLogPacket(
-                pkt,
-                self._table_map,
-                self._connection,
-                self._use_checksum,
-                self._allowed_events_in_packet,
-                self._only_tables,
-                self._ignored_tables,
-                self._only_schemas,
-                self._ignored_schemas,
-                self._freeze_schema,
-            )
+        binlog_event = BinLogPacket(
+            pkt,
+            self._table_map,
+            self._ctl_connection,
+            self._use_checksum,
+            self._allowed_events_in_packet,
+            self._only_tables,
+            self._ignored_tables,
+            self._only_schemas,
+            self._ignored_schemas,
+            self._freeze_schema,
+        )
+        await binlog_event.init()
 
-            if binlog_event.event_type == ROTATE_EVENT:
-                self._master_log_position = binlog_event.event.position
-                self._master_log_file = binlog_event.event.next_binlog
-                self._table_map = {}
-            elif binlog_event.log_pos:
-                self._master_log_position = binlog_event.log_pos
-            if self._skip_to_timestamp and binlog_event.timestamp < self._skip_to_timestamp:
-                continue
+        if binlog_event.event_type == ROTATE_EVENT:
+            self._master_log_position = binlog_event.event.position
+            self._master_log_file = binlog_event.event.next_binlog
+            self._table_map = {}
+        elif binlog_event.log_pos:
+            self._master_log_position = binlog_event.log_pos
+        if self._skip_to_timestamp and binlog_event.timestamp < self._skip_to_timestamp:
+            return
 
-            if binlog_event.event_type == TABLE_MAP_EVENT and binlog_event.event is not None:
-                self._table_map[binlog_event.event.table_id] = binlog_event.event.table
+        if binlog_event.event_type == TABLE_MAP_EVENT and binlog_event.event is not None:
+            self._table_map[binlog_event.event.table_id] = binlog_event.event.table
 
-            if binlog_event.event is None or (
-                binlog_event.event.__class__ not in self._allowed_events
-            ):
-                continue
+        if binlog_event.event is None or (binlog_event.event.__class__ not in self._allowed_events):
+            return
 
-            return binlog_event.event
+        return binlog_event.event
 
     async def _checksum_enable(self):
         async with self._connection.cursor() as cursor:
@@ -334,7 +335,7 @@ class BinLogStream:
         await self._connection.read_packet()
 
     async def _get_table_information(self, schema, table):
-        async with self._connection.cursor() as cursor:
+        async with self._ctl_connection.cursor(DictCursor) as cursor:
             await cursor.execute(
                 """
                     SELECT
@@ -357,5 +358,5 @@ class BinLogStream:
     async def __anext__(self):
         try:
             return await self._read()
-        except StopIteration:
+        except StreamClosedError:
             raise StopAsyncIteration

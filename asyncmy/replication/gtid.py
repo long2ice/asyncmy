@@ -42,7 +42,7 @@ class Gtid:
 
         return sid, intervals_parsed
 
-    def __add_interval(self, itvl):
+    def _add_interval(self, itvl):
         """
         Use the internal representation format and add it
         to our intervals, merging if required.
@@ -100,7 +100,9 @@ class Gtid:
             any(self.contains(me, them) for me in self.intervals) for them in other.intervals
         )
 
-    def __init__(self, gtid: str, sid=None, intervals=[]):
+    def __init__(self, gtid: str, sid=None, intervals=None):
+        if intervals is None:
+            intervals = []
         if sid:
             intervals = intervals
         else:
@@ -109,7 +111,7 @@ class Gtid:
         self.sid = sid
         self.intervals = []
         for itvl in intervals:
-            self.__add_interval(itvl)
+            self._add_interval(itvl)
 
     def __add__(self, other):
         """Include the transactions of this gtid. Raise if the
@@ -120,7 +122,7 @@ class Gtid:
         result = Gtid(str(self))
 
         for itvl in other.intervals:
-            result.__add_interval(itvl)
+            result._add_interval(itvl)
 
         return result
 

@@ -31,11 +31,18 @@ class BinLogEvent:
         self._processed = True
         self.complete = True
 
+    @property
+    def processed(self):
+        return self._processed
+
     def _read_table_id(self):
         # Table ID is 6 byte
         # pad little-endian number
         table_id = self.packet.read(6) + int2byte(0) + int2byte(0)
         return struct.unpack("<Q", table_id)[0]
+
+    async def init(self):
+        pass
 
 
 class GtidEvent(BinLogEvent):

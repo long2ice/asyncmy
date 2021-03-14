@@ -133,8 +133,11 @@ class BinLogPacket:
             ignored_schemas=ignored_schemas,
             freeze_schema=freeze_schema,
         )
-        if self.event._processed is False:
+        if self.event.processed is False:
             self.event = None
+
+    async def init(self):
+        self.event and await self.event.init()
 
     def read(self, size):
         size = int(size)

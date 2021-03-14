@@ -1,5 +1,7 @@
 class Table:
-    def __init__(self, column_schemas, table_id, schema, table, columns, primary_key=None):
+    def __init__(
+        self, column_schemas, table_id, schema: str, table: str, columns, primary_key=None
+    ):
         if primary_key is None:
             primary_key = [c.data["name"] for c in columns if c.data["is_primary"]]
             if len(primary_key) == 0:
@@ -23,9 +25,3 @@ class Table:
     @property
     def data(self):
         return dict((k, v) for (k, v) in self.__dict__.items() if not k.startswith("_"))
-
-    def __eq__(self, other):
-        return self.data == other.data
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
