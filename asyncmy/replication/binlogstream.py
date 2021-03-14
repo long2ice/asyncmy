@@ -357,6 +357,10 @@ class BinLogStream:
 
     async def __anext__(self):
         try:
-            return await self._read()
+            ret = await self._read()
+            while ret is None:
+                ret = await self._read()
+                continue
+            return ret
         except StreamClosedError:
             raise StopAsyncIteration
