@@ -1,6 +1,20 @@
 import struct
 
-from asyncmy.constants.FIELD_TYPE import *
+from asyncmy.constants.FIELD_TYPE import (
+    BIT,
+    BLOB,
+    DOUBLE,
+    ENUM,
+    FLOAT,
+    GEOMETRY,
+    JSON,
+    NEWDECIMAL,
+    SET,
+    STRING,
+    TINY,
+    VAR_STRING,
+    VARCHAR,
+)
 from asyncmy.replication.constants import DATETIME2, TIME2, TIMESTAMP2
 
 

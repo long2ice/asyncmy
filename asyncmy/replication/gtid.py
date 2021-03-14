@@ -55,7 +55,7 @@ class Gtid:
         if any(self.overlap(x, itvl) for x in self.intervals):
             raise Exception("Overlapping interval %s" % (itvl,))
 
-        ## Merge: arrange interval to fit existing set
+        # Merge: arrange interval to fit existing set
         for existing in sorted(self.intervals):
             if itvl[0] == existing[1]:
                 itvl = (existing[0], itvl[1])
@@ -80,7 +80,7 @@ class Gtid:
             # No raise
             return
 
-        ## Merge: arrange existing set around interval
+        # Merge: arrange existing set around interval
         for existing in sorted(self.intervals):
             if self.overlap(existing, itvl):
                 if existing[0] < itvl[0]:
@@ -178,8 +178,7 @@ class Gtid:
         return buffer
 
     @classmethod
-    def decode(cls, payload):
-        assert isinstance(payload, BytesIO), "payload is expected to be a BytesIO"
+    def decode(cls, payload: BytesIO):
         sid = b""
         sid = sid + binascii.hexlify(payload.read(4))
         sid = sid + b"-"
@@ -285,10 +284,8 @@ class GtidSet:
     encode = encoded
 
     @classmethod
-    def decode(cls, payload):
-        assert isinstance(payload, BytesIO), "payload is expected to be a BytesIO"
+    def decode(cls, payload: BytesIO):
         (n_sid,) = struct.unpack("<Q", payload.read(8))
-
         return cls(set(Gtid.decode(payload) for _ in range(0, n_sid)))
 
     def __eq__(self, other: "GtidSet"):

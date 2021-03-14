@@ -1,5 +1,4 @@
 import binascii
-import datetime
 import struct
 
 from asyncmy.replication.utils import byte2int, int2byte

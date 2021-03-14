@@ -5,7 +5,29 @@ import struct
 from pymysql.charset import charset_by_name
 from pymysql.util import byte2int
 
-from asyncmy.constants.FIELD_TYPE import *
+from asyncmy.constants.FIELD_TYPE import (
+    BIT,
+    BLOB,
+    DATE,
+    DATETIME,
+    DOUBLE,
+    ENUM,
+    FLOAT,
+    GEOMETRY,
+    INT24,
+    JSON,
+    LONG,
+    LONGLONG,
+    NEWDECIMAL,
+    SET,
+    SHORT,
+    STRING,
+    TIME,
+    TIMESTAMP,
+    TINY,
+    VARCHAR,
+    YEAR,
+)
 
 from .bitmap import bit_count, bit_get
 from .column import Column
