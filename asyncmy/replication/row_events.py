@@ -2,9 +2,7 @@ import datetime
 import decimal
 import struct
 
-from pymysql.charset import charset_by_name
-from pymysql.util import byte2int
-
+from asyncmy.charset import charset_by_name
 from asyncmy.constants.FIELD_TYPE import (
     BIT,
     BLOB,
@@ -42,6 +40,7 @@ from .constants import (
 from .errors import TableMetadataUnavailableError
 from .events import BinLogEvent
 from .table import Table
+from .utils import byte2int
 
 
 class RowsEvent(BinLogEvent):
