@@ -65,11 +65,12 @@ class RowsEvent(BinLogEvent):
         except KeyError:  # If we have filter the corresponding TableMap Event
             self._processed = False
             return
+        schema_table = f"{self.schema}.{self.table}"
 
-        if self._only_tables is not None and self.table not in self._only_tables:
+        if self._only_tables is not None and schema_table not in self._only_tables:
             self._processed = False
             return
-        elif self._ignored_tables is not None and self.table in self._ignored_tables:
+        elif self._ignored_tables is not None and schema_table in self._ignored_tables:
             self._processed = False
             return
 
