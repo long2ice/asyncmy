@@ -125,5 +125,4 @@ if __name__ == '__main__':
 
 ## License
 
-This project is licensed under the
-[Apache-2.0](https://github.com/long2ice/aerich/blob/master/LICENSE) License.
+This project is licensed under the [Apache-2.0](./LICENSE) License.
