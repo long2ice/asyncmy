@@ -2,6 +2,10 @@
 
 ## 0.1
 
+### 0.1.4
+
+- Add replication support.
+
 ### 0.1.3
 
 - Fix pool.
