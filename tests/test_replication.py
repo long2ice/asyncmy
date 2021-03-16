@@ -1,7 +1,7 @@
 import pytest
 
 from asyncmy import connect
-from asyncmy.replication.binlogstream import BinLogStream
+from asyncmy.replication import BinLogStream
 from asyncmy.replication.row_events import WriteRowsEvent
 from conftest import connection_kwargs
 
