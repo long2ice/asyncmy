@@ -4,8 +4,11 @@ import aiomysql
 
 import asyncmy
 from benchmark import COUNT, conn_mysqlclient, conn_pymysql, connection_kwargs
+from benchmark.decorators import cleanup, fill_data
 
 
+@cleanup
+@fill_data
 async def select_asyncmy():
     conn = await asyncmy.connect(**connection_kwargs)
     async with conn.cursor() as cur:
@@ -17,6 +20,8 @@ async def select_asyncmy():
         return time.time() - t
 
 
+@cleanup
+@fill_data
 async def select_aiomysql():
     conn = await aiomysql.connect(**connection_kwargs)
     async with conn.cursor() as cur:
@@ -28,6 +33,8 @@ async def select_aiomysql():
         return time.time() - t
 
 
+@cleanup
+@fill_data
 def select_mysqlclient():
     cur = conn_mysqlclient.cursor()
     t = time.time()
@@ -38,6 +45,8 @@ def select_mysqlclient():
     return time.time() - t
 
 
+@cleanup
+@fill_data
 def select_pymysql():
     cur = conn_pymysql.cursor()
     t = time.time()

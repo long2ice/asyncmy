@@ -24,4 +24,7 @@ test: deps
 build: deps
 	@poetry build
 
+benchmark: deps
+	python benchmark/main.py
+
 ci: check test

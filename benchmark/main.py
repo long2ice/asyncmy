@@ -43,8 +43,7 @@ if __name__ == "__main__":
   `float` float DEFAULT NULL,
   `string` varchar(200) DEFAULT NULL,
   `tinyint` tinyint DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `asyncmy_string_index` (`string`)
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=400001 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"""
     )
     cur.execute("truncate table test.asyncmy")
@@ -53,21 +52,25 @@ if __name__ == "__main__":
     insert_asyncmy_ret = loop.run_until_complete(insert_asyncmy())
     insert_pymysql_ret = insert_pymysql()
     insert_aiomysql_ret = loop.run_until_complete(insert_aiomysql())
+    pprint("insert finish!")
 
     select_mysqlclient_ret = select_mysqlclient()
     select_asyncmy_ret = loop.run_until_complete(select_asyncmy())
     select_pymysql_ret = select_pymysql()
     select_aiomysql_ret = loop.run_until_complete(select_aiomysql())
+    pprint("select finish!")
 
     update_mysqlclient_ret = update_mysqlclient()
     update_asyncmy_ret = loop.run_until_complete(update_asyncmy())
     update_pymysql_ret = update_pymysql()
     update_aiomysql_ret = loop.run_until_complete(update_aiomysql())
+    pprint("update finish!")
 
     delete_mysqlclient_ret = delete_mysqlclient()
     delete_asyncmy_ret = loop.run_until_complete(delete_asyncmy())
     delete_pymysql_ret = delete_pymysql()
     delete_aiomysql_ret = loop.run_until_complete(delete_aiomysql())
+    pprint("delete finish!")
 
     ret = {
         "select": sorted(
