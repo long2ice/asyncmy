@@ -8,6 +8,8 @@ import asyncmy
 from benchmark import COUNT, connection_kwargs
 from benchmark.decorators import cleanup, fill_data
 
+count = int(COUNT / 5)
+
 
 @cleanup
 @fill_data
@@ -15,7 +17,7 @@ async def update_asyncmy():
     conn = await asyncmy.connect(**connection_kwargs)
     async with conn.cursor() as cur:
         t = time.time()
-        for i in range(COUNT):
+        for i in range(count):
             await cur.execute(
                 "update test.asyncmy set `string`=%s where `id` = %s",
                 (
@@ -32,7 +34,7 @@ async def update_aiomysql():
     conn = await aiomysql.connect(**connection_kwargs)
     async with conn.cursor() as cur:
         t = time.time()
-        for i in range(COUNT):
+        for i in range(count):
             await cur.execute(
                 "update test.asyncmy set `string`=%s where `id` = %s",
                 (
@@ -49,7 +51,7 @@ def update_mysqlclient():
     conn = MySQLdb.connect(**connection_kwargs)
     cur = conn.cursor()
     t = time.time()
-    for i in range(COUNT):
+    for i in range(count):
         cur.execute(
             "update test.asyncmy set `string`=%s where `id` = %s",
             (
@@ -66,7 +68,7 @@ def update_pymysql():
     conn = pymysql.connect(**connection_kwargs)
     cur = conn.cursor()
     t = time.time()
-    for i in range(COUNT):
+    for i in range(count):
         cur.execute(
             "update test.asyncmy set `string`=%s where `id` = %s",
             (
