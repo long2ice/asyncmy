@@ -2,6 +2,10 @@
 
 ## 0.1
 
+### 0.1.5
+
+- Fix warning for sql_mode.
+
 ### 0.1.4
 
 - Add replication support.

@@ -526,13 +526,10 @@ class Connection:
             self._connected = True
 
             if self._sql_mode is not None:
-                c = self.cursor()
-                await c.execute("SET sql_mode=%s", (self._sql_mode,))
+                await self.query("SET sql_mode=%s" % (self._sql_mode,))
 
             if self._init_command is not None:
-                c = self.cursor()
-                await c.execute(self._init_command)
-                await c.close()
+                await self.query(self._init_command)
                 await self.commit()
 
             if self.autocommit_mode is not None:
