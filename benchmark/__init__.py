@@ -1,4 +1,3 @@
-import faker
 import MySQLdb
 import pymysql
 
@@ -8,15 +7,14 @@ connection_kwargs = dict(
 conn_mysqlclient = MySQLdb.connect(**connection_kwargs)
 conn_pymysql = pymysql.connect(**connection_kwargs)
 COUNT = 50000
-faker = faker.Faker()
 
 data = [
     (
         1,
-        faker.date_time().date(),
-        faker.date_time(),
+        "2021-01-01",
+        "2020-07-16 22:49:54",
         1,
-        faker.name(),
+        "asyncmy",
         1,
     )
     for _ in range(COUNT)

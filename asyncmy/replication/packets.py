@@ -48,7 +48,6 @@ from asyncmy.replication.constants import (
     WRITE_ROWS_EVENT_V2,
     XID_EVENT,
 )
-from asyncmy.replication.utils import byte2int
 
 
 class BinLogPacket:
@@ -104,7 +103,7 @@ class BinLogPacket:
 
         # Header
         self.timestamp = unpack[1]
-        self.event_type = byte2int(unpack[2])
+        self.event_type = unpack[2]
         self.server_id = unpack[3]
         self.event_size = unpack[4]
         # position of the next event
@@ -167,7 +166,7 @@ class BinLogPacket:
             self._packet.advance(size)
 
     def read_length_coded_binary(self):
-        c = byte2int(self.read(1))
+        c = self.read(1)
         if c == NULL_COLUMN:
             return None
         if c < UNSIGNED_CHAR_COLUMN:

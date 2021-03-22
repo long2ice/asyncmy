@@ -44,7 +44,7 @@ if __name__ == "__main__":
   `string` varchar(200) DEFAULT NULL,
   `tinyint` tinyint DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=400001 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"""
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"""
     )
     cur.execute("truncate table test.asyncmy")
 

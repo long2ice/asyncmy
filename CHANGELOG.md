@@ -4,6 +4,7 @@
 
 ### 0.1.5
 
+- Remove `byte2int` and `int2byte`.
 - Fix warning for sql_mode.
 
 ### 0.1.4
