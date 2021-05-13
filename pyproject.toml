@@ -31,7 +31,7 @@ cython = "*"
 mysqlclient = "*"
 pymysql = "*"
 aiomysql = "*"
-uvloop = "*"
+uvloop = { version = "*", markers = "sys_platform != 'win32'" }
 cryptography = "*"
 
 [build-system]
