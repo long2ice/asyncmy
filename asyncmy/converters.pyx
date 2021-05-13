@@ -7,7 +7,7 @@ from .constants.FIELD_TYPE import *
 from .errors import ProgrammingError
 
 
-def escape_item(val, charset, mapping=None):
+cpdef escape_item(val, str charset, mapping=None):
     if mapping is None:
         mapping = encoders
     encoder = mapping.get(type(val))
@@ -74,10 +74,10 @@ cpdef str escape_string(str value, mapping=None):
     return value.translate(_escape_table)
 
 cpdef str escape_bytes_prefixed(bytes value, mapping=None):
-    return "_binary'%s'" % value.decode("ascii", "surrogateescape").translate(_escape_table)
+    return "_binary'%s'" % value.decode(b"ascii", "surrogateescape").translate(_escape_table)
 
 cpdef str escape_bytes(bytes value, mapping=None):
-    return "'%s'" % value.decode("ascii", "surrogateescape").translate(_escape_table)
+    return "'%s'" % value.decode(b"ascii", "surrogateescape").translate(_escape_table)
 
 cpdef str escape_str(str value, mapping=None):
     return "'%s'" % escape_string(str(value), mapping)
@@ -116,7 +116,7 @@ cpdef str  escape_date(obj, mapping=None):
 cpdef str  escape_struct_time(obj, mapping=None):
     return escape_datetime(datetime.datetime(*obj[:6]))
 
-cpdef str  Decimal2Literal(o, d):
+cpdef str  decimal2literal(o, d):
     return format(o, "f")
 
 cpdef int  _convert_second_fraction(s):
@@ -281,7 +281,7 @@ def through(x):
 #     so we shouldn't either
 convert_bit = through
 
-cdef dict encoders = {
+cpdef dict encoders = {
     bool: escape_bool,
     int: escape_int,
     float: escape_float,
@@ -298,7 +298,7 @@ cdef dict encoders = {
     datetime.timedelta: escape_timedelta,
     datetime.time: escape_time,
     time.struct_time: escape_struct_time,
-    Decimal: Decimal2Literal,
+    Decimal: decimal2literal,
 }
 
 cdef dict decoders = {
@@ -329,4 +329,3 @@ cdef dict decoders = {
 # for MySQLdb compatibility
 conversions = encoders.copy()
 conversions.update(decoders)
-Thing2Literal = escape_str
