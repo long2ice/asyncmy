@@ -203,13 +203,13 @@ cdef class FieldDescriptorPacket(MysqlPacket):
     cdef:
         bytes catalog, db
         public str table_name, org_table, name, org_name
-        public long charsetnr, length, type_code, flags, scale
+        public long long charsetnr, length, type_code, flags, scale
 
     def __init__(self, bytes data, str encoding):
         super(FieldDescriptorPacket, self).__init__(data, encoding)
         self._parse_field_descriptor(encoding)
 
-    cdef _parse_field_descriptor(self, encoding):
+    cdef _parse_field_descriptor(self, str encoding):
         """
         Parse the 'Field Descriptor' (Metadata) packet.
 
@@ -228,8 +228,6 @@ cdef class FieldDescriptorPacket(MysqlPacket):
             self.flags,
             self.scale,
         ) = self.read_struct("<xHIBHBxx")
-        # 'default' is a length coded binary and is still in the buffer?
-        # not used for normal result sets...
 
     cpdef description(self):
         """Provides a 7-item tuple compatible with the Python PEP249 DB Spec."""
