@@ -2,6 +2,10 @@
 
 ## 0.1
 
+### 0.1.6
+
+- Bug fix.
+
 ### 0.1.5
 
 - Remove `byte2int` and `int2byte`.
