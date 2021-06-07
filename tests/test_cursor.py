@@ -31,8 +31,9 @@ async def test_dict_cursor(connection):
 async def test_insert(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.execute(
-            """INSERT INTO test.asyncmy(`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             (
+                -1,
                 1,
                 "2020-08-08",
                 "2020-08-08 00:00:00",

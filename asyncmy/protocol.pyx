@@ -105,8 +105,8 @@ cdef class MysqlPacket:
         self._position += 4
         return result
 
-    cpdef int read_uint64(self):
-        cdef int result = struct.unpack_from("<Q", self._data, self._position)[0]
+    cpdef unsigned long read_uint64(self):
+        cdef unsigned long result = struct.unpack_from("<Q", self._data, self._position)[0]
         self._position += 8
         return result
 
@@ -265,8 +265,9 @@ cdef class OKPacketWrapper:
     """
     cdef:
         MysqlPacket packet
-        public int affected_rows, insert_id, server_status, warning_count, has_next
+        public int affected_rows, server_status, warning_count, has_next
         public bytes message
+        public unsigned long insert_id
 
     def __init__(self, MysqlPacket from_packet):
         if not from_packet.is_ok_packet():
@@ -281,6 +282,7 @@ cdef class OKPacketWrapper:
 
         self.affected_rows = self.packet.read_length_encoded_integer()
         self.insert_id = self.packet.read_length_encoded_integer()
+
         self.server_status, self.warning_count = self.read_struct("<HH")
         self.message = self.packet.read_all()
         self.has_next = self.server_status & SERVER_MORE_RESULTS_EXISTS
