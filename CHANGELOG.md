@@ -2,6 +2,10 @@
 
 ## 0.1
 
+### 0.1.8
+
+- Fix pool recycle. (#4)
+
 ### 0.1.7
 
 - Fix negative pk. (#2)

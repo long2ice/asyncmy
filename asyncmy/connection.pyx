@@ -182,6 +182,7 @@ class Connection:
             db=None,  # deprecated
     ):
         self._loop = loop or asyncio.get_event_loop()
+        self._last_usage = self._loop.time()
         if db is not None and database is None:
             # We will raise warining in 2022 or later.
             # See https://github.com/PyMySQL/PyMySQL/issues/939
@@ -301,6 +302,11 @@ class Connection:
     def connected(self):
         """Return True if the connection is open."""
         return self._connected
+
+    @property
+    def last_usage(self):
+        """Return time() when connection was used."""
+        return self._last_usage
 
     async def ensure_closed(self):
         """Close connection without QUIT message."""
@@ -432,6 +438,7 @@ class Connection:
         :param cursor: The type of cursor to create. None means use Cursor.
         :type cursor: :py:class:`Cursor`, :py:class:`SSCursor`, :py:class:`DictCursor`, or :py:class:`SSDictCursor`.
         """
+        self._last_usage = self._loop.time()
         if cursor:
             return cursor(self)
         return self._cursor_cls(self)
