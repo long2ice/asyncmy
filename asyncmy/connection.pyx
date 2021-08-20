@@ -221,6 +221,7 @@ class Connection:
             port = int(_config("port", port))
             charset = _config("default-character-set", charset)
         self._echo = echo
+        self._last_usage = self._loop.time()
         self._ssl_context = ssl
         if ssl:
             client_flag |= SSL
