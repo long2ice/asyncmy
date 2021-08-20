@@ -304,6 +304,10 @@ class Connection:
         return self._connected
 
     @property
+    def loop(self):
+        return self._loop
+
+    @property
     def last_usage(self):
         """Return time() when connection was used."""
         return self._last_usage

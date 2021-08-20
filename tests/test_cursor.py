@@ -7,7 +7,7 @@ from asyncmy.cursors import DictCursor
 async def test_fetchone(connection):
     async with connection.cursor() as cursor:
         await cursor.execute("SELECT 1")
-        ret = cursor.fetchone()
+        ret = await cursor.fetchone()
         assert ret == (1,)
 
 

@@ -43,6 +43,7 @@ class Cursor:
         self._result = None
         self._rows = None
         self._echo = echo
+        self._loop = self.connection.loop
 
     async def close(self):
         """
@@ -175,7 +176,7 @@ class Cursor:
             logger.info("%r", args)
         return result
 
-    def executemany(self, query, args):
+    async def executemany(self, query, args):
         """Run several data against one query.
 
         :param query: Query to execute.
@@ -204,7 +205,7 @@ class Cursor:
             q_postfix = m.group(3) or ""
             if q_values[0] != "(" and q_values[-1] == ")":
                 raise errors.ProgrammingError("Query values error")
-            return self._do_execute_many(
+            return await self._do_execute_many(
                 q_prefix,
                 q_values,
                 q_postfix,
@@ -212,8 +213,11 @@ class Cursor:
                 self.max_stmt_length,
                 self._get_db()._encoding,
             )
-
-        self.rowcount = sum(self.execute(query, arg) for arg in args)
+        rows = 0
+        for arg in args:
+            await self.execute(query, arg)
+            rows += self.rowcount
+        self.rowcount = rows
         return self.rowcount
 
     async def _do_execute_many(self, prefix, values, postfix, args, max_stmt_length, encoding):
@@ -297,33 +301,42 @@ class Cursor:
     def fetchone(self):
         """Fetch the next row."""
         self._check_executed()
+        fut = self._loop.create_future()
         if self._rows is None or self.rownumber >= len(self._rows):
-            return None
+            fut.set_result(None)
+            return fut
         result = self._rows[self.rownumber]
         self.rownumber += 1
-        return result
+        fut.set_result(result)
+        return fut
 
     def fetchmany(self, size=None):
         """Fetch several rows."""
         self._check_executed()
+        fut = self._loop.create_future()
         if self._rows is None:
-            return ()
+            fut.set_result([])
+            return fut
         end = self.rownumber + (size or self.arraysize)
         result = self._rows[self.rownumber : end]
         self.rownumber = min(end, len(self._rows))
-        return result
+        fut.set_result(result)
+        return fut
 
-    async def fetchall(self):
+    def fetchall(self):
         """Fetch all the rows."""
         self._check_executed()
+        fut = self._loop.create_future()
         if self._rows is None:
-            return ()
+            fut.set_result([])
+            return fut
         if self.rownumber:
             result = self._rows[self.rownumber :]
         else:
             result = self._rows
         self.rownumber = len(self._rows)
-        return result
+        fut.set_result(result)
+        return fut
 
     def scroll(self, value, mode="relative"):
         self._check_executed()

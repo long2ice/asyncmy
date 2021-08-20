@@ -5,6 +5,7 @@
 ### 0.1.8
 
 - Fix pool recycle. (#4)
+- Fix async `fetchone`, `fetchall`, and `fetchmany`. (#7)
 
 ### 0.1.7
 
