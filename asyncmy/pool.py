@@ -26,7 +26,7 @@ class Pool(asyncio.AbstractServer):
         self._closing = False
         self._closed = False
         self._echo = echo
-        self._recycle = pool_recycle
+        self._recycle = int(pool_recycle)
 
     @property
     def echo(self):

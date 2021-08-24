@@ -2,6 +2,10 @@
 
 ## 0.1
 
+### 0.1.9
+
+- Force int `pool_recycle`.
+
 ### 0.1.8
 
 - Fix pool recycle. (#4)
