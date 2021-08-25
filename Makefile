@@ -1,4 +1,4 @@
-checkfiles = asyncmy/ tests/ benchmark/ conftest.py
+checkfiles = asyncmy/ tests/ conftest.py
 black_opts = -l 100 -t py38
 py_warn = PYTHONDEVMODE=1
 MYSQL_PASS ?= "123456"
@@ -16,7 +16,8 @@ style: deps
 check: deps
 	black --check $(black_opts) $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
 	flake8 $(checkfiles)
-	bandit -x tests,benchmark -r $(checkfiles)
+	bandit -x tests -r $(checkfiles)
+	mypy $(checkfiles)
 
 test: deps
 	$(py_warn) MYSQL_PASS=$(MYSQL_PASS) pytest

@@ -1,5 +1,6 @@
 import asyncio
 import collections
+from typing import Deque, Set
 
 from asyncmy.connection import Connection, connect
 from asyncmy.contexts import _PoolAcquireContextManager, _PoolContextManager
@@ -19,10 +20,10 @@ class Pool(asyncio.AbstractServer):
         self._loop = loop
         self._conn_kwargs = kwargs
         self._acquiring = 0
-        self._free = collections.deque(maxlen=maxsize)
+        self._free: Deque[Connection] = collections.deque(maxlen=maxsize)
         self._cond = asyncio.Condition()
-        self._used = set()
-        self._terminated = set()
+        self._used: Set[Connection] = set()
+        self._terminated: Set[Connection] = set()
         self._closing = False
         self._closed = False
         self._echo = echo

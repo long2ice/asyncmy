@@ -1,18 +1,15 @@
-import configparser
+from configparser import RawConfigParser
 
 
-class Parser(configparser.RawConfigParser):
+class Parser(RawConfigParser):
     def __init__(self, **kwargs):
         kwargs["allow_no_value"] = True
-        configparser.RawConfigParser.__init__(self, **kwargs)
+        super(Parser, self).__init__(**kwargs)
 
-    def _remove_quotes(self, value):
+    def get(self, section, option, **kwargs):
+        value = super(Parser, self).get(section, option)
         quotes = ["'", '"']
         for quote in quotes:
             if len(value) >= 2 and value[0] == value[-1] == quote:
                 return value[1:-1]
         return value
-
-    def get(self, section, option, **kwargs):
-        value = configparser.RawConfigParser.get(self, section, option)
-        return self._remove_quotes(value)

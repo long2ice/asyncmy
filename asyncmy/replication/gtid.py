@@ -200,7 +200,7 @@ class Gtid:
             "%s:%s"
             % (
                 sid.decode("ascii"),
-                ":".join(["%d-%d" % x if isinstance(x, tuple) else "%d" % x for x in intervals]),
+                ":".join(["%d-%d" % x for x in intervals]),
             )
         )
 
@@ -235,14 +235,14 @@ class GtidSet:
         self._gtid_set = gtid_set
 
     def merge_gtid(self, gtid: Gtid):
-        new_gtid_set = []
+        new_gtid_set = set()
         for existing in self._gtid_set:
             if existing.sid == gtid.sid:
-                new_gtid_set.append(existing + gtid)
+                new_gtid_set.add(existing + gtid)
             else:
-                new_gtid_set.append(existing)
+                new_gtid_set.add(existing)
         if gtid.sid not in (x.sid for x in new_gtid_set):
-            new_gtid_set.append(gtid)
+            new_gtid_set.add(gtid)
         self._gtid_set = new_gtid_set
 
     def __contains__(self, other: Union[Gtid, "GtidSet"]):
@@ -288,5 +288,5 @@ class GtidSet:
         (n_sid,) = struct.unpack("<Q", payload.read(8))
         return cls(set(Gtid.decode(payload) for _ in range(0, n_sid)))
 
-    def __eq__(self, other: "GtidSet"):
+    def __eq__(self, other: "GtidSet"):  # type: ignore[override]
         return self._gtid_set == other._gtid_set

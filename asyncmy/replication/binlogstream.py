@@ -1,5 +1,5 @@
 import struct
-from typing import List, Optional, Set, Type, Union
+from typing import Any, Dict, List, Optional, Set, Type, Union
 
 from asyncmy import Connection
 from asyncmy.constants.COMMAND import COM_BINLOG_DUMP, COM_BINLOG_DUMP_GTID, COM_REGISTER_SLAVE
@@ -141,10 +141,8 @@ class BinLogStream:
         self._allowed_events = self._allowed_event_list(
             only_events, ignored_events, filter_non_implemented_events
         )
-        self._allowed_events_in_packet = frozenset([TableMapEvent, RotateEvent]).union(
-            self._allowed_events
-        )
-        self._table_map = {}
+        self._allowed_events_in_packet = [TableMapEvent, RotateEvent, *self._allowed_events]
+        self._table_map: Dict[str, Any] = {}
 
     @staticmethod
     def _allowed_event_list(
