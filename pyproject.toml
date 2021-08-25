@@ -33,6 +33,7 @@ pymysql = "*"
 aiomysql = "*"
 uvloop = { version = "*", markers = "sys_platform != 'win32'" }
 cryptography = "*"
+mypy = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "setuptools", "cython"]
