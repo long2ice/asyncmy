@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 async def main():
-    conn = await connect(user="root", password="123456", database="test", echo=True)
+    conn = await connect(user="root", password="123456", database="test", echo=True)  # nosec: B106
     async with conn.cursor() as cursor:
         await cursor.execute("select 1")
         ret = await cursor.fetchone()
