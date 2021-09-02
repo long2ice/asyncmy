@@ -445,8 +445,8 @@ class Connection:
         """
         self._last_usage = self._loop.time()
         if cursor:
-            return cursor(self)
-        return self._cursor_cls(self)
+            return cursor(self, echo=self._echo)
+        return self._cursor_cls(self, echo=self._echo)
 
     # The following methods are INTERNAL USE ONLY (called from Cursor)
     async def query(self, sql, unbuffered=False):

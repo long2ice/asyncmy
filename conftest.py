@@ -12,6 +12,7 @@ connection_kwargs = dict(
     port=3306,
     user="root",
     password=os.getenv("MYSQL_PASS") or "123456",
+    echo=True,
 )
 
 

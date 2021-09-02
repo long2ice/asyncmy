@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 import warnings
 
 from . import errors
@@ -13,7 +14,7 @@ RE_INSERT_VALUES = re.compile(
     + r"(\s*(?:ON DUPLICATE.*)?);?\s*\Z",
     re.IGNORECASE | re.DOTALL,
 )
-logger = logging.getLogger("asyncmy.cursors")
+logger = logging.getLogger(__package__)
 
 
 class Cursor:
@@ -168,12 +169,12 @@ class Cursor:
             pass
 
         query = self.mogrify(query, args)
-
+        start = time.time()
         result = await self._query(query)
+        end = time.time()
         self._executed = query
         if self._echo:
-            logger.info(query)
-            logger.info("%r", args)
+            logger.info(f"[{round((end-start) *1000,2)}ms] {query}")
         return result
 
     async def executemany(self, query, args):

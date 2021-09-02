@@ -5,6 +5,7 @@
 ### 0.1.9
 
 - Force int `pool_recycle`.
+- Fix `echo` option.
 
 ### 0.1.8
 
