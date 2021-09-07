@@ -105,7 +105,6 @@ async def run():
         resume_stream=True,
         blocking=True,
     )
-    await stream.connect()
     async for event in stream:
         print(event)
 
@@ -116,7 +115,7 @@ if __name__ == '__main__':
 
 ## ThanksTo
 
-> asyncmy is build on top of these nice projects.
+> asyncmy is build on top of these awesome projects.
 
 - [pymysql](https://github/pymysql/PyMySQL), a pure python MySQL client.
 - [aiomysql](https://github.com/aio-libs/aiomysql), a library for accessing a MySQL database from the asyncio.

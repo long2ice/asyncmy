@@ -179,9 +179,7 @@ class BinLogStream:
                 pass
         return frozenset(events)
 
-    async def connect(self):
-        if self._connected:
-            return
+    async def _connect(self):
         await self._connection.connect()
         self._use_checksum = await self._checksum_enable()
         async with self._connection.cursor() as cursor:
@@ -272,7 +270,7 @@ class BinLogStream:
 
     async def _read(self):
         if not self._connected:
-            await self.connect()
+            await self._connect()
 
         pkt = await self._connection.read_packet()
         if pkt.is_eof_packet():
@@ -316,7 +314,7 @@ class BinLogStream:
     async def _checksum_enable(self):
         async with self._connection.cursor() as cursor:
             await cursor.execute("SHOW GLOBAL VARIABLES LIKE 'BINLOG_CHECKSUM'")
-            result = cursor.fetchone()
+            result = await cursor.fetchone()
             if result is None:
                 return False
             var, value = result[:2]
@@ -354,6 +352,8 @@ class BinLogStream:
         return self
 
     async def __anext__(self):
+        if not self._connected:
+            await self._connect()
         try:
             ret = await self._read()
             while ret is None:

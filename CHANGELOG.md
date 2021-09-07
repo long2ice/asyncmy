@@ -6,6 +6,7 @@
 
 - Force int `pool_recycle`.
 - Fix `echo` option.
+- Fix bug replication and now don't need to connect manual.
 
 ### 0.1.8
 

@@ -40,6 +40,7 @@ from .constants import (
 from .errors import TableMetadataUnavailableError
 from .events import BinLogEvent
 from .table import Table
+from .utils import byte2int
 
 
 class RowsEvent(BinLogEvent):
@@ -539,10 +540,10 @@ class TableMapEvent(BinLogEvent):
         self.flags = struct.unpack("<H", self.packet.read(2))[0]
 
         # Payload
-        self.schema_length = self.packet.read(1)
+        self.schema_length = byte2int(self.packet.read(1))
         self.schema = self.packet.read(self.schema_length).decode()
         self.packet.advance(1)
-        self.table_length = self.packet.read(1)
+        self.table_length = byte2int(self.packet.read(1))
         self.table_name = self.packet.read(self.table_length).decode()
         schema_table = f"{self.schema}.{self.table_name}"
         if self._only_tables is not None and schema_table not in self._only_tables:
