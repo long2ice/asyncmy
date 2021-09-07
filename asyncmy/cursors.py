@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+import typing
 import warnings
 
 from . import errors
@@ -15,6 +16,8 @@ RE_INSERT_VALUES = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 logger = logging.getLogger(__package__)
+if typing.TYPE_CHECKING:
+    from asyncmy.connection import Connection
 
 
 class Cursor:
@@ -34,7 +37,7 @@ class Cursor:
     #: Default value of max_allowed_packet is 1048576.
     max_stmt_length = 1024000
 
-    def __init__(self, connection, echo=False):
+    def __init__(self, connection: "Connection", echo=False):
         self.connection = connection
         self.description = None
         self.rownumber = 0
@@ -174,7 +177,7 @@ class Cursor:
         end = time.time()
         self._executed = query
         if self._echo:
-            logger.info(f"[{round((end-start) *1000,2)}ms] {query}")
+            logger.info(f"[{round((end - start) * 1000, 2)}ms] {query}")
         return result
 
     async def executemany(self, query, args):
@@ -378,7 +381,7 @@ class Cursor:
         if result.warning_count > 0:
             await self._show_warnings(conn)
 
-    async def _show_warnings(self, conn):
+    async def _show_warnings(self, conn: "Connection"):
         if self._result and self._result.has_next:
             return
         ws = await conn.show_warnings()

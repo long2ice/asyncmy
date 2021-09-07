@@ -1,7 +1,5 @@
 import asyncio
 
-import pytest
-
 from asyncmy import connect
 from asyncmy.replication import BinLogStream
 from asyncmy.replication.row_events import WriteRowsEvent
