@@ -456,7 +456,7 @@ class SSCursor(Cursor):
             return
 
         if self._result is not None and self._result is conn._result:
-            self._result._finish_unbuffered_query()
+            await self._result._finish_unbuffered_query()
 
         try:
             while await self.nextset():

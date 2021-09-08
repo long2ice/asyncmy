@@ -1,5 +1,11 @@
 # ChangeLog
 
+## 0.2
+
+### 0.2.0
+
+- Fix `cursor.close`.
+
 ## 0.1
 
 ### 0.1.9
