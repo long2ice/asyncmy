@@ -995,12 +995,18 @@ class Connection:
     NotSupportedError = errors.NotSupportedError
 
 
-class MySQLResult:
+cdef class MySQLResult:
+    cdef:
+        public connection, message, description, rows, has_next, unbuffered_active
+        public int affected_rows, warning_count, field_count, server_status
+        public list fields, converters
+        public unsigned long insert_id
+
     def __init__(self, connection: Connection):
         self.connection = connection
-        self.affected_rows = None
-        self.insert_id = None
-        self.server_status = None
+        self.affected_rows = 0
+        self.insert_id = 0
+        self.server_status = 0
         self.warning_count = 0
         self.message = None
         self.field_count = 0

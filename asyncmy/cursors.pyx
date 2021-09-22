@@ -17,10 +17,9 @@ RE_INSERT_VALUES = re.compile(
 )
 logger = logging.getLogger(__package__)
 if typing.TYPE_CHECKING:
-    from asyncmy.connection import Connection
+    from asyncmy.connection import Connection, MySQLResult
 
-
-class Cursor:
+cdef class Cursor:
     """
     This is the object used to interact with the database.
 
@@ -35,9 +34,13 @@ class Cursor:
     #:
     #: Max size of allowed statement is max_allowed_packet - packet_header_size.
     #: Default value of max_allowed_packet is 1048576.
-    max_stmt_length = 1024000
+    cdef:
+        public int max_stmt_length, rownumber, rowcount, arraysize, _echo
+        public tuple description
+        public lastrowid, connection, _loop, _executed, _result, _rows
 
-    def __init__(self, connection: "Connection", echo=False):
+    def __init__(self, connection: "Connection", echo: bool = False):
+        self.max_stmt_length = 1024000
         self.connection = connection
         self.description = None
         self.rownumber = 0
@@ -78,7 +81,7 @@ class Cursor:
         else:
             raise StopAsyncIteration  # noqa
 
-    def _get_db(self):
+    cpdef _get_db(self):
         if not self.connection:
             raise errors.ProgrammingError("Cursor closed")
         return self.connection
@@ -113,7 +116,7 @@ class Cursor:
     async def nextset(self):
         return await self._nextset(False)
 
-    def _ensure_bytes(self, x, encoding=None):
+    cdef _ensure_bytes(self, x, encoding=None):
         if isinstance(x, str):
             x = x.encode(encoding)
         elif isinstance(x, (tuple, list)):
@@ -204,7 +207,7 @@ class Cursor:
 
         m = RE_INSERT_VALUES.match(query)
         if m:
-            q_prefix = m.group(1) % ()
+            q_prefix: str = m.group(1) % ()
             q_values = m.group(2).rstrip()
             q_postfix = m.group(3) or ""
             if q_values[0] != "(" and q_values[-1] == ")":
@@ -302,7 +305,7 @@ class Cursor:
         self._executed = q
         return args
 
-    def fetchone(self):
+    cpdef  fetchone(self):
         """Fetch the next row."""
         self._check_executed()
         fut = self._loop.create_future()
@@ -314,7 +317,7 @@ class Cursor:
         fut.set_result(result)
         return fut
 
-    def fetchmany(self, size=None):
+    cpdef fetchmany(self, size=None):
         """Fetch several rows."""
         self._check_executed()
         fut = self._loop.create_future()
@@ -322,12 +325,12 @@ class Cursor:
             fut.set_result([])
             return fut
         end = self.rownumber + (size or self.arraysize)
-        result = self._rows[self.rownumber : end]
+        result = self._rows[self.rownumber: end]
         self.rownumber = min(end, len(self._rows))
         fut.set_result(result)
         return fut
 
-    def fetchall(self):
+    cpdef fetchall(self):
         """Fetch all the rows."""
         self._check_executed()
         fut = self._loop.create_future()
@@ -335,14 +338,14 @@ class Cursor:
             fut.set_result([])
             return fut
         if self.rownumber:
-            result = self._rows[self.rownumber :]
+            result = self._rows[self.rownumber:]
         else:
             result = self._rows
         self.rownumber = len(self._rows)
         fut.set_result(result)
         return fut
 
-    def scroll(self, value, mode="relative"):
+    cpdef scroll(self, value, mode="relative"):
         self._check_executed()
         if mode == "relative":
             r = self.rownumber + value
@@ -362,10 +365,9 @@ class Cursor:
         await self._do_get_result()
         return self.rowcount
 
-    def _clear_result(self):
+    cdef _clear_result(self):
         self.rownumber = 0
         self._result = None
-
         self.rowcount = 0
         self.description = None
         self.lastrowid = None
