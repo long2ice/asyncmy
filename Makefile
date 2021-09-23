@@ -1,4 +1,4 @@
-checkfiles = asyncmy/ tests/ examples/ conftest.py
+checkfiles = asyncmy/ tests/ examples/ conftest.py build.py
 black_opts = -l 100 -t py38
 py_warn = PYTHONDEVMODE=1
 MYSQL_PASS ?= "123456"

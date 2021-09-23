@@ -6,7 +6,6 @@ import asyncio
 import errno
 import os
 import socket
-import struct
 import sys
 import warnings
 from asyncio import StreamReader, StreamWriter
@@ -19,7 +18,7 @@ from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
                               OKPacketWrapper)
-
+from asyncmy import struct
 from .constants.CLIENT import (CAPABILITIES, CONNECT_ATTRS, CONNECT_WITH_DB,
                                LOCAL_FILES, MULTI_RESULTS, MULTI_STATEMENTS,
                                PLUGIN_AUTH, PLUGIN_AUTH_LENENC_CLIENT_DATA,
@@ -316,7 +315,7 @@ class Connection:
     async def ensure_closed(self):
         """Close connection without QUIT message."""
         if self._connected:
-            send_data = struct.pack('<i', 1) + struct.pack("!B", COM_QUIT)
+            send_data = struct.pack('<i', 1) + struct.pack("!B", 0x01)  # for cython build
             self._write_bytes(send_data)
             await self._writer.drain()
             self._writer.close()
@@ -463,7 +462,7 @@ class Connection:
     def affected_rows(self):
         return self._affected_rows
 
-    async def kill(self, thread_id):
+    async def kill(self, int thread_id):
         arg = struct.pack("<I", thread_id)
         await self._execute_command(COM_PROCESS_KILL, arg)
         return await self._read_ok_packet()
@@ -578,7 +577,7 @@ class Connection:
         """
         buff = bytearray()
         while True:
-            packet_header = await self._read_bytes(4)
+            packet_header: bytes = await self._read_bytes(4)
             btrl, btrh, packet_number = struct.unpack("<HBB", packet_header)
             bytes_to_read = btrl + (btrh << 16)
             if packet_number != self._next_seq_id:
@@ -657,7 +656,7 @@ class Connection:
         else:
             await self.ensure_closed()
 
-    async def _execute_command(self, command, sql):
+    async def _execute_command(self, bytes command, sql):
         """
         :raise InterfaceError: If the connection is closed.
         :raise ValueError: If no username was specified.
@@ -678,7 +677,7 @@ class Connection:
         if isinstance(sql, str):
             sql = sql.encode(self._encoding)
 
-        packet_size = min(MAX_PACKET_LEN, len(sql) + 1)  # +1 is for command
+        cdef int packet_size = min(MAX_PACKET_LEN, len(sql) + 1)  # +1 is for command
 
         # tiny optimization: build first packet manually instead of
         # calling self..write_packet()
@@ -731,7 +730,7 @@ class Connection:
                 sock=raw_sock, ssl=self._ssl_context,
                 server_hostname=self._host, loop=self._loop,
             )
-        charset_id = charset_by_name(self._charset).id
+        cdef int charset_id = charset_by_name(self._charset).id
         if isinstance(self._user, str):
             self._user = self._user.encode(self._encoding)
 
@@ -923,7 +922,7 @@ class Connection:
     async def _get_server_information(self):
         i = 0
         packet = await self.read_packet()
-        data = packet.get_all_data()
+        data: bytes = packet.get_all_data()
 
         self.protocol_version = data[i]
         i += 1
@@ -1153,7 +1152,7 @@ cdef class MySQLResult:
                 # No more columns in this row
                 # See https://github.com/PyMySQL/PyMySQL/pull/434
                 break
-            if data is not None:
+            if data != b"":
                 if encoding is not None:
                     data = data.decode(encoding)
                 if converter is not None:
