@@ -81,7 +81,7 @@ cdef class Cursor:
         else:
             raise StopAsyncIteration  # noqa
 
-    cpdef _get_db(self):
+    def _get_db(self):
         if not self.connection:
             raise errors.ProgrammingError("Cursor closed")
         return self.connection

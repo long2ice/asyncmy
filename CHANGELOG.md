@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.1
+
+- More cython code.
+
 ### 0.2.0
 
 - Fix `cursor.close`.

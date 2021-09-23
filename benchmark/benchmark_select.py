@@ -1,9 +1,15 @@
+import asyncio
 import time
 
 import aiomysql
-
 import asyncmy
-from benchmark import COUNT, conn_mysqlclient, conn_pymysql, connection_kwargs
+
+from benchmark import (
+    COUNT,
+    conn_mysqlclient,
+    conn_pymysql,
+    connection_kwargs,
+)
 from benchmark.decorators import cleanup, fill_data
 
 
@@ -55,3 +61,24 @@ def select_pymysql():
         res = cur.fetchall()
         assert len(res) == 1
     return time.time() - t
+
+
+def benchmark_select():
+    loop = asyncio.get_event_loop()
+    select_mysqlclient_ret = select_mysqlclient()
+    select_asyncmy_ret = loop.run_until_complete(select_asyncmy())
+    select_pymysql_ret = select_pymysql()
+    select_aiomysql_ret = loop.run_until_complete(select_aiomysql())
+    return sorted(
+        {
+            "mysqlclient": select_mysqlclient_ret,
+            "asyncmy": select_asyncmy_ret,
+            "pymysql": select_pymysql_ret,
+            "aiomysql": select_aiomysql_ret,
+        }.items(),
+        key=lambda x: x[1],
+    )
+
+
+if __name__ == "__main__":
+    print(benchmark_select())

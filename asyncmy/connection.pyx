@@ -997,10 +997,12 @@ class Connection:
 
 cdef class MySQLResult:
     cdef:
-        public connection, message, description, rows, has_next, unbuffered_active
-        public int affected_rows, warning_count, field_count, server_status
+        public connection
+        public bytes message
+        public int affected_rows, warning_count, field_count, server_status, unbuffered_active, has_next
         public list fields, converters
         public unsigned long insert_id
+        public tuple rows, description
 
     def __init__(self, connection: Connection):
         self.connection = connection
@@ -1012,7 +1014,7 @@ cdef class MySQLResult:
         self.field_count = 0
         self.description = None
         self.rows = None
-        self.has_next = None
+        self.has_next = False
         self.unbuffered_active = False
 
     def __del__(self):

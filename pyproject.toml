@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "asyncmy"
-version = "0.2.0"
+version = "0.2.1"
 description = "A fast asyncio MySQL driver"
 authors = ["long2ice <long2ice@gmail.com>"]
 license = "Apache-2.0"

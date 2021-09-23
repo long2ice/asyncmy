@@ -1,10 +1,11 @@
+import asyncio
 import time
 
 import aiomysql
+import asyncmy
 import MySQLdb
 import pymysql
 
-import asyncmy
 from benchmark import COUNT, connection_kwargs
 from benchmark.decorators import cleanup, fill_data
 
@@ -77,3 +78,24 @@ def update_pymysql():
             ),
         )
     return time.time() - t
+
+
+def benchmark_update():
+    loop = asyncio.get_event_loop()
+    update_mysqlclient_ret = update_mysqlclient()
+    update_asyncmy_ret = loop.run_until_complete(update_asyncmy())
+    update_pymysql_ret = update_pymysql()
+    update_aiomysql_ret = loop.run_until_complete(update_aiomysql())
+    return sorted(
+        {
+            "mysqlclient": update_mysqlclient_ret,
+            "asyncmy": update_asyncmy_ret,
+            "pymysql": update_pymysql_ret,
+            "aiomysql": update_aiomysql_ret,
+        }.items(),
+        key=lambda x: x[1],
+    )
+
+
+if __name__ == "__main__":
+    print(benchmark_update())

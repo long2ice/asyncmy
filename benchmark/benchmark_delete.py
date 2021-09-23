@@ -1,10 +1,11 @@
+import asyncio
 import time
 
 import aiomysql
+import asyncmy
 import MySQLdb
 import pymysql
 
-import asyncmy
 from benchmark import COUNT, connection_kwargs
 from benchmark.decorators import cleanup, fill_data
 
@@ -57,3 +58,24 @@ def delete_pymysql():
         ret = cur.execute("delete from test.asyncmy where `id`=%s", (i + 1,))
         assert ret == 1
     return time.time() - t
+
+
+def benchmark_delete():
+    loop = asyncio.get_event_loop()
+    delete_asyncmy_ret = loop.run_until_complete(delete_asyncmy())
+    delete_mysqlclient_ret = delete_mysqlclient()
+    delete_pymysql_ret = delete_pymysql()
+    delete_aiomysql_ret = loop.run_until_complete(delete_aiomysql())
+    return sorted(
+        {
+            "mysqlclient": delete_mysqlclient_ret,
+            "asyncmy": delete_asyncmy_ret,
+            "pymysql": delete_pymysql_ret,
+            "aiomysql": delete_aiomysql_ret,
+        }.items(),
+        key=lambda x: x[1],
+    )
+
+
+if __name__ == "__main__":
+    print(benchmark_delete())
