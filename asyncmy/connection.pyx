@@ -18,7 +18,7 @@ from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
                               OKPacketWrapper)
-from asyncmy import struct
+import xstruct as struct
 from .constants.CLIENT import (CAPABILITIES, CONNECT_ATTRS, CONNECT_WITH_DB,
                                LOCAL_FILES, MULTI_RESULTS, MULTI_STATEMENTS,
                                PLUGIN_AUTH, PLUGIN_AUTH_LENENC_CLIENT_DATA,

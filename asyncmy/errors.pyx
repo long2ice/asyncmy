@@ -1,4 +1,4 @@
-import struct
+import xstruct as struct
 
 from .constants.ER import *
 

@@ -1,6 +1,6 @@
 import datetime
 import decimal
-import struct
+import xstruct as struct
 
 from asyncmy.charset import charset_by_name
 from asyncmy.constants.FIELD_TYPE import (

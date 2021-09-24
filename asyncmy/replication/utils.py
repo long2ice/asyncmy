@@ -1,4 +1,4 @@
-import struct
+import xstruct as struct
 
 
 def byte2int(b):

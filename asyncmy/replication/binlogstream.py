@@ -1,4 +1,4 @@
-import struct
+import xstruct as struct
 from typing import Any, Dict, List, Optional, Set, Type, Union
 
 from asyncmy import Connection

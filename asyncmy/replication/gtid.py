@@ -1,6 +1,6 @@
 import binascii
 import re
-import struct
+import xstruct as struct
 from io import BytesIO
 from typing import Set, Union
 
