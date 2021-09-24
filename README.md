@@ -7,13 +7,14 @@
 
 ## Introduction
 
-`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL) and rewrite
-core with [cython](https://cython.org/) to speedup.
+`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL)
+and [aiomysql](https://github.com/aio-libs/aiomysql) but rewrite core protocol with [cython](https://cython.org/) to
+speedup.
 
 ## Features
 
 - API compatible with [aiomysql](https://github.com/aio-libs/aiomysql).
-- Fast with [cython](https://cython.org/).
+- Faster with [cython](https://cython.org/).
 - MySQL replication protocol support.
 
 ## Benchmark
@@ -33,15 +34,16 @@ The result comes from [benchmark](./benchmark).
 
 ## Install
 
-Just install from pypi:
-
 ```shell
-> pip install asyncmy
+pip install asyncmy
 ```
 
 ## Usage
 
 ### Use `connect`
+
+`asyncmy` provides a way to connect to MySQL database with simple factory function `asyncmy.connnect()`. Use this
+function if you want just one connection to the database, consider connection pool for multiple connections.
 
 ```py
 from asyncmy import connect
@@ -73,6 +75,8 @@ if __name__ == '__main__':
 
 ### Use `pool`
 
+`asyncmy` provides connection pool as well as plain Connection objects.
+
 ```py
 import asyncmy
 import asyncio
@@ -92,6 +96,9 @@ if __name__ == '__main__':
 ```
 
 ## Replication
+
+`asyncmy` supports MySQL replication protocol
+like [python-mysql-replication](https://github.com/noplay/python-mysql-replication), but powered by `asyncio`.
 
 ```py
 from asyncmy import connect
