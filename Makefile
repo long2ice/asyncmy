@@ -6,7 +6,7 @@ MYSQL_PASS ?= "123456"
 up:
 	@poetry update
 
-deps:
+deps: 
 	@poetry install
 
 style: deps

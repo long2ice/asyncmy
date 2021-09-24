@@ -1,8 +1,9 @@
 import binascii
 import re
-import xstruct as struct
 from io import BytesIO
 from typing import Set, Union
+
+import xstruct as struct
 
 
 class Gtid:

@@ -11,6 +11,7 @@ import warnings
 from asyncio import StreamReader, StreamWriter
 from typing import Optional, Type
 
+import xstruct as struct
 from asyncmy import auth, converters, errors
 from asyncmy.charset import charset_by_id, charset_by_name
 from asyncmy.cursors import Cursor
@@ -18,7 +19,7 @@ from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
                               OKPacketWrapper)
-import xstruct as struct
+
 from .constants.CLIENT import (CAPABILITIES, CONNECT_ATTRS, CONNECT_WITH_DB,
                                LOCAL_FILES, MULTI_RESULTS, MULTI_STATEMENTS,
                                PLUGIN_AUTH, PLUGIN_AUTH_LENENC_CLIENT_DATA,
