@@ -6,7 +6,6 @@ import asyncio
 import errno
 import os
 import socket
-import struct
 import sys
 import warnings
 from asyncio import StreamReader, StreamWriter
@@ -36,6 +35,7 @@ from .constants.SERVER_STATUS import (SERVER_STATUS_AUTOCOMMIT,
                                       SERVER_STATUS_IN_TRANS,
                                       SERVER_STATUS_NO_BACKSLASH_ESCAPES)
 from .contexts import _ConnectionContextManager
+from .structs import B_, BHHB, HBB, IIB, B, H, I, Q, i, iB, iIB23s
 from .version import __VERSION__
 
 try:
@@ -72,7 +72,7 @@ cdef str DEFAULT_CHARSET = "utf8mb4"
 cdef int MAX_PACKET_LEN = 2 ** 24 - 1
 
 cdef _pack_int24(int n):
-    return struct.pack("<I", n)[:3]
+    return I.pack(n)[:3]
 
 # https://dev.mysql.com/doc/internals/en/integer.html#packet-Protocol::LengthEncodedInteger
 cdef _lenenc_int(int i):
@@ -83,11 +83,11 @@ cdef _lenenc_int(int i):
     elif i < 0xFB:
         return bytes([i])
     elif i < (1 << 16):
-        return b"\xfc" + struct.pack("<H", i)
+        return b"\xfc" + H.pack(i)
     elif i < (1 << 24):
-        return b"\xfd" + struct.pack("<I", i)[:3]
+        return b"\xfd" + I.pack(i)[:3]
     elif i < (1 << 64):
-        return b"\xfe" + struct.pack("<Q", i)
+        return b"\xfe" + Q.pack(i)
     else:
         raise ValueError(
             "Encoding %x is larger than %x - no representation in LengthEncodedInteger"
@@ -316,7 +316,7 @@ class Connection:
     async def ensure_closed(self):
         """Close connection without QUIT message."""
         if self._connected:
-            send_data = struct.pack('<i', 1) + struct.pack("!B", COM_QUIT)
+            send_data = i.pack(1) + B.pack(COM_QUIT)
             self._write_bytes(send_data)
             await self._writer.drain()
             self._writer.close()
@@ -464,7 +464,7 @@ class Connection:
         return self._affected_rows
 
     async def kill(self, thread_id):
-        arg = struct.pack("<I", thread_id)
+        arg = I.pack(thread_id)
         await self._execute_command(COM_PROCESS_KILL, arg)
         return await self._read_ok_packet()
 
@@ -564,7 +564,7 @@ class Connection:
         """
         # Internal note: when you build packet manually and calls _write_bytes()
         # directly, you should set self._next_seq_id properly.
-        data = _pack_int24(len(payload)) + struct.pack("!B", self._next_seq_id) + payload
+        data = _pack_int24(len(payload)) + B.pack(self._next_seq_id) + payload
         self._write_bytes(data)
         self._next_seq_id = (self._next_seq_id + 1) % 256
 
@@ -579,7 +579,7 @@ class Connection:
         buff = bytearray()
         while True:
             packet_header = await self._read_bytes(4)
-            btrl, btrh, packet_number = struct.unpack("<HBB", packet_header)
+            btrl, btrh, packet_number = HBB.unpack(packet_header)
             bytes_to_read = btrl + (btrh << 16)
             if packet_number != self._next_seq_id:
                 if packet_number == 0:
@@ -682,7 +682,7 @@ class Connection:
 
         # tiny optimization: build first packet manually instead of
         # calling self..write_packet()
-        prelude = struct.pack("<iB", packet_size, command)
+        prelude = iB.pack(packet_size, command)
         self._write_bytes(prelude + sql[: packet_size - 1])
         self._next_seq_id = 1
 
@@ -707,7 +707,7 @@ class Connection:
 
         if self._ssl_context:
             # capablities, max packet, charset
-            data = struct.pack('<IIB', self._client_flag, 16777216, 33)
+            data = IIB.pack('<IIB', self._client_flag, 16777216, 33)
             data += b'\x00' * (32 - len(data))
 
             self.write_packet(data)
@@ -735,7 +735,7 @@ class Connection:
         if isinstance(self._user, str):
             self._user = self._user.encode(self._encoding)
 
-        data_init = struct.pack("<iIB23s", self._client_flag, MAX_PACKET_LEN, charset_id, b"")
+        data_init = iIB23s.pack(self._client_flag, MAX_PACKET_LEN, charset_id, b"")
         data = data_init + self._user + b"\0"
 
         authresp = b""
@@ -763,7 +763,7 @@ class Connection:
         if self.server_capabilities & PLUGIN_AUTH_LENENC_CLIENT_DATA:
             data += _lenenc_int(len(authresp)) + authresp
         elif self.server_capabilities & SECURE_CONNECTION:
-            data += struct.pack("B", len(authresp)) + authresp
+            data += B_.pack(len(authresp)) + authresp
         else:  # pragma: no cover - not testing against servers without secure auth (>=5.0)
             data += authresp + b"\0"
 
@@ -779,10 +779,10 @@ class Connection:
             connect_attrs = b""
             for k, v in self._connect_attrs.items():
                 k = k.encode("utf-8")
-                connect_attrs += struct.pack("B", len(k)) + k
+                connect_attrs += B_.pack(len(k)) + k
                 v = v.encode("utf-8")
-                connect_attrs += struct.pack("B", len(v)) + v
-            data += struct.pack("B", len(connect_attrs)) + connect_attrs
+                connect_attrs += B_.pack(len(v)) + v
+            data += B_.pack(len(connect_attrs)) + connect_attrs
 
         self.write_packet(data)
         auth_packet = await self.read_packet()
@@ -932,17 +932,17 @@ class Connection:
         self.server_version = data[i:server_end].decode("latin1")
         i = server_end + 1
 
-        self.server_thread_id = struct.unpack("<I", data[i: i + 4])
+        self.server_thread_id = I.unpack(data[i: i + 4])
         i += 4
 
         self.salt = data[i: i + 8]
         i += 9  # 8 + 1(filler)
 
-        self.server_capabilities = struct.unpack("<H", data[i: i + 2])[0]
+        self.server_capabilities = H.unpack(data[i: i + 2])[0]
         i += 2
 
         if len(data) >= i + 6:
-            lang, stat, cap_h, salt_len = struct.unpack("<BHHB", data[i: i + 6])
+            lang, stat, cap_h, salt_len = BHHB.unpack(data[i: i + 6])
             i += 6
             # TODO: deprecate server_language and server_charset.
             # mysqlclient-python doesn't provide it.

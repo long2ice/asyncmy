@@ -18,11 +18,18 @@ core with [cython](https://cython.org/) to speedup.
 
 ## Benchmark
 
-The result comes from [benchmark](./benchmark), we can know `asyncmy` performs well when compared to other drivers.
+The result comes from [benchmark](./benchmark).
 
-> The device is MacBook Pro (13-inch, M1, 2020) 16G and MySQL version is 8.0.23.
+> The device is iMac Pro(2017) i9 3.6GHz 48G and MySQL version is 8.0.26.
 
 ![benchmark](./images/benchmark.png)
+
+### Conclusion
+
+- There is no doubt that `mysqlclient` is the fastest MySQL driver.
+- All kinds of drivers have a small gap except `select`.
+- `asyncio` could enhance `insert`.
+- `asyncmy` performs remarkable when compared to other drivers.
 
 ## Install
 

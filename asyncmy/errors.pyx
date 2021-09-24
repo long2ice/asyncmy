@@ -1,6 +1,7 @@
 import struct
 
 from .constants.ER import *
+from .structs import H
 
 
 cdef class MySQLError(Exception):
@@ -127,7 +128,7 @@ _map_error(
 )
 
 cpdef raise_mysql_exception(bytes data):
-    errno = struct.unpack("<h", data[1:3])[0]
+    errno = H.unpack(data[1:3])[0]
     err_val = data[9:].decode("utf-8", "replace")
     error_class = error_map.get(errno)
     if error_class is None:
