@@ -4,7 +4,7 @@
 
 ### 0.2.1
 
-- More cython code.
+- Fix `binlogstream` await. (#12)
 
 ### 0.2.0
 
