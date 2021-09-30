@@ -37,6 +37,25 @@ The result comes from [benchmark](./benchmark).
 ```shell
 pip install asyncmy
 ```
+### Installing on Windows
+To install asyncmy on Windows, you need to install the tools needed to build it.
+
+1. Download *Microsoft C++ Build Tools* from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Run CMD as Admin (not required but recommended) and navigate to the folder when your installer is downloaded
+3. Installer executable should look like this `vs_buildtools__XXXXXXXXX.XXXXXXXXXX.exe`, it will be easier if you rename it to just `vs_buildtools.exe`
+4. Run this command (Make sure you have about 5-6GB of free storage)
+```shell
+vs_buildtools.exe --norestart --passive --downloadThenInstall --includeRecommended --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Workload.MSBuildTools
+```
+5. Wait until the installation is finished
+6. After installation will finish, restart your computer
+7. Install asyncmy via PIP 
+```shell
+pip install asyncmy
+```
+
+Now you can uninstall previously installed tools.
+
 
 ## Usage
 
