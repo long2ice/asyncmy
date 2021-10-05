@@ -177,11 +177,10 @@ class Connection:
             program_name=None,
             server_public_key=None,
             echo=False,
-            loop=None,
             ssl=None,
             db=None,  # deprecated
     ):
-        self._loop = loop or asyncio.get_event_loop()
+        self._loop = asyncio.get_event_loop()
         self._last_usage = self._loop.time()
         if db is not None and database is None:
             # We will raise warining in 2022 or later.
@@ -509,8 +508,7 @@ class Connection:
 
             if self._unix_socket:
                 self._reader, self._writer = await asyncio.wait_for(asyncio.open_unix_connection(self._unix_socket),
-                                                                    timeout=self._connect_timeout,
-                                                                    loop=self._loop)
+                                                                    timeout=self._connect_timeout,)
                 self.host_info = "Localhost via UNIX socket"
                 self._secure = True
             else:
@@ -519,7 +517,6 @@ class Connection:
                         self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(
                             self._host,
                             self._port,
-                            loop=self._loop,
                         ), timeout=self._connect_timeout)
                         self._set_keep_alive()
                         break
@@ -729,7 +726,7 @@ class Connection:
             # connection not initiate a new one.
             self._reader, self._writer = await asyncio.open_connection(
                 sock=raw_sock, ssl=self._ssl_context,
-                server_hostname=self._host, loop=self._loop,
+                server_hostname=self._host,
             )
         charset_id = charset_by_name(self._charset).id
         if isinstance(self._user, str):
@@ -1256,7 +1253,6 @@ def connect(user=None,
             write_timeout=None,
             binary_prefix=False,
             program_name=None,
-            loop=None,
             echo=False,
             server_public_key=None,
             ssl=None,
@@ -1287,7 +1283,6 @@ def connect(user=None,
         write_timeout=write_timeout,
         binary_prefix=binary_prefix,
         program_name=program_name,
-        loop=loop,
         server_public_key=server_public_key,
         echo=echo,
         ssl=ssl,

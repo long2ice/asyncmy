@@ -10,14 +10,14 @@ class Pool(asyncio.AbstractServer):
     """Connection pool, just from aiomysql"""
 
     def __init__(
-        self, minsize: int, maxsize: int, pool_recycle: int, loop, echo: bool = False, **kwargs
+            self, minsize: int, maxsize: int, pool_recycle: int, echo: bool = False, **kwargs
     ):
         if minsize < 0:
             raise ValueError("minsize should be zero or greater")
         if maxsize < minsize:
             raise ValueError("maxsize should be not less than minsize")
         self._minsize = minsize
-        self._loop = loop
+        self._loop = asyncio.get_event_loop()
         self._conn_kwargs = kwargs
         self._acquiring = 0
         self._free: Deque[Connection] = collections.deque(maxlen=maxsize)
@@ -142,7 +142,7 @@ class Pool(asyncio.AbstractServer):
         while self.size < self.minsize:
             self._acquiring += 1
             try:
-                conn = await connect(loop=self._loop, **self._conn_kwargs)
+                conn = await connect(**self._conn_kwargs)
                 # raise exception if pool is closing
                 self._free.append(conn)
                 self._cond.notify()
@@ -154,7 +154,7 @@ class Pool(asyncio.AbstractServer):
         if override_min and self.size < self.maxsize:
             self._acquiring += 1
             try:
-                conn = await connect(loop=self._loop, **self._conn_kwargs)
+                conn = await connect(**self._conn_kwargs)
                 # raise exception if pool is closing
                 self._free.append(conn)
                 self._cond.notify()
@@ -199,22 +199,18 @@ class Pool(asyncio.AbstractServer):
 
 
 def create_pool(
-    minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, loop=None, **kwargs
+        minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, **kwargs
 ):
     coro = _create_pool(
-        minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, loop=loop, **kwargs
+        minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, **kwargs
     )
     return _PoolContextManager(coro)
 
-
 async def _create_pool(
-    minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, loop=None, **kwargs
+        minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, **kwargs
 ):
-    if loop is None:
-        loop = asyncio.get_event_loop()
-
     pool = Pool(
-        minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, loop=loop, **kwargs
+        minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, **kwargs
     )
     if minsize > 0:
         async with pool.cond:

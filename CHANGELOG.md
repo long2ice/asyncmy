@@ -5,6 +5,7 @@
 ### 0.2.1
 
 - Fix `binlogstream` await. (#12)
+- Remove `loop` argument. (#15)
 
 ### 0.2.0
 
