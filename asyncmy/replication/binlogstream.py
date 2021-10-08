@@ -197,7 +197,7 @@ class BinLogStream:
             if not self._master_auto_position:
                 if self._master_log_file is None or self._master_log_position is None:
                     await cursor.execute("SHOW MASTER STATUS")
-                    master_status = cursor.fetchone()
+                    master_status = await cursor.fetchone()
                     if master_status is None:
                         raise BinLogNotEnabledError("MySQL binary logging is not enabled.")
                     self._master_log_file, self._master_log_position = master_status[:2]

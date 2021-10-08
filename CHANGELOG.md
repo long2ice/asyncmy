@@ -4,7 +4,8 @@
 
 ### 0.2.1
 
-- More cython code.
+- Fix `binlogstream` await. (#12)
+- Remove `loop` argument. (#15)
 
 ### 0.2.0
 

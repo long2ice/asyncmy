@@ -1,11 +1,11 @@
 name: ci
 on: [ push, pull_request ]
 jobs:
-  test:
+  ci:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [ 3.7, 3.8, 3.9 ]
+        python-version: [ "3.7", "3.8", "3.9", "3.10" ]
     steps:
       - name: Start MySQL
         run: sudo systemctl start mysql.service
@@ -16,7 +16,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pip-
       - uses: actions/checkout@v2
-      - uses: actions/setup-python@v1
+      - uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install and configure Poetry

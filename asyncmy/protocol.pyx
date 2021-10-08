@@ -5,9 +5,10 @@ from .constants.COLUMN import (NULL_COLUMN, UNSIGNED_CHAR_COLUMN,
                                UNSIGNED_SHORT_COLUMN)
 from .constants.FIELD_TYPE import VAR_STRING
 from .constants.SERVER_STATUS import SERVER_MORE_RESULTS_EXISTS
+from .structs import HB, H, I, Q
 
 include "charset.pxd"
-from . import errors
+from . import errors, structs
 
 
 cdef class MysqlPacket:
@@ -90,22 +91,22 @@ cdef class MysqlPacket:
         return result
 
     cpdef int read_uint16(self):
-        cdef int result = struct.unpack_from("<H", self._data, self._position)[0]
+        cdef int result = H.unpack_from(self._data, self._position)[0]
         self._position += 2
         return result
 
     cpdef int read_uint24(self):
-        cdef tuple result = struct.unpack_from("<HB", self._data, self._position)
+        cdef tuple result = HB.unpack_from(self._data, self._position)
         self._position += 3
         return result[0] + (result[1] << 16)
 
     cpdef int read_uint32(self):
-        cdef int result = struct.unpack_from("<I", self._data, self._position)[0]
+        cdef int result = I.unpack_from(self._data, self._position)[0]
         self._position += 4
         return result
 
     cpdef unsigned long read_uint64(self):
-        cdef unsigned long result = struct.unpack_from("<Q", self._data, self._position)[0]
+        cdef unsigned long result = Q.unpack_from(self._data, self._position)[0]
         self._position += 8
         return result
 
@@ -150,7 +151,8 @@ cdef class MysqlPacket:
         return self.read(length)
 
     cpdef tuple read_struct(self, str fmt):
-        result = struct.unpack_from(fmt, self._data, self._position)
+        s = getattr(structs, fmt[1:])
+        result = s.unpack_from(self._data, self._position)
         self._position += len(result)
         return tuple(result)
 

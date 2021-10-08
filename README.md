@@ -7,34 +7,62 @@
 
 ## Introduction
 
-`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL) and rewrite
-core with [cython](https://cython.org/) to speedup.
+`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL)
+and [aiomysql](https://github.com/aio-libs/aiomysql) but rewrite core protocol with [cython](https://cython.org/) to
+speedup.
 
 ## Features
 
 - API compatible with [aiomysql](https://github.com/aio-libs/aiomysql).
-- Fast with [cython](https://cython.org/).
+- Faster with [cython](https://cython.org/).
 - MySQL replication protocol support.
 
 ## Benchmark
 
-The result comes from [benchmark](./benchmark), we can know `asyncmy` performs well when compared to other drivers.
+The result comes from [benchmark](./benchmark).
 
-> The device is MacBook Pro (13-inch, M1, 2020) 16G and MySQL version is 8.0.23.
+> The device is iMac Pro(2017) i9 3.6GHz 48G and MySQL version is 8.0.26.
 
 ![benchmark](./images/benchmark.png)
 
+### Conclusion
+
+- There is no doubt that `mysqlclient` is the fastest MySQL driver.
+- All kinds of drivers have a small gap except `select`.
+- `asyncio` could enhance `insert`.
+- `asyncmy` performs remarkable when compared to other drivers.
+
 ## Install
 
-Just install from pypi:
-
 ```shell
-> pip install asyncmy
+pip install asyncmy
 ```
+### Installing on Windows
+To install asyncmy on Windows, you need to install the tools needed to build it.
+
+1. Download *Microsoft C++ Build Tools* from https://visualstudio.microsoft.com/visual-cpp-build-tools/
+2. Run CMD as Admin (not required but recommended) and navigate to the folder when your installer is downloaded
+3. Installer executable should look like this `vs_buildtools__XXXXXXXXX.XXXXXXXXXX.exe`, it will be easier if you rename it to just `vs_buildtools.exe`
+4. Run this command (Make sure you have about 5-6GB of free storage)
+```shell
+vs_buildtools.exe --norestart --passive --downloadThenInstall --includeRecommended --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Workload.MSBuildTools
+```
+5. Wait until the installation is finished
+6. After installation will finish, restart your computer
+7. Install asyncmy via PIP 
+```shell
+pip install asyncmy
+```
+
+Now you can uninstall previously installed tools.
+
 
 ## Usage
 
 ### Use `connect`
+
+`asyncmy` provides a way to connect to MySQL database with simple factory function `asyncmy.connnect()`. Use this
+function if you want just one connection to the database, consider connection pool for multiple connections.
 
 ```py
 from asyncmy import connect
@@ -66,6 +94,8 @@ if __name__ == '__main__':
 
 ### Use `pool`
 
+`asyncmy` provides connection pool as well as plain Connection objects.
+
 ```py
 import asyncmy
 import asyncio
@@ -85,6 +115,9 @@ if __name__ == '__main__':
 ```
 
 ## Replication
+
+`asyncmy` supports MySQL replication protocol
+like [python-mysql-replication](https://github.com/noplay/python-mysql-replication), but powered by `asyncio`.
 
 ```py
 from asyncmy import connect
