@@ -13,10 +13,7 @@ jobs:
       - uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install and configure Poetry
-        uses: snok/install-poetry@v1
-        with:
-          virtualenvs-create: false
+      - uses: abatilo/actions-poetry@v2.0.0
       - name: Run ci
         env:
           MYSQL_PASS: root
