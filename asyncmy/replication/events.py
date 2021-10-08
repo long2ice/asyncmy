@@ -105,9 +105,7 @@ class XidEvent(BinLogEvent):
     """
 
     def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
-        super(XidEvent, self).__init__(
-            from_packet, event_size, table_map, ctl_connection, **kwargs
-        )
+        super(XidEvent, self).__init__(from_packet, event_size, table_map, ctl_connection, **kwargs)
         self.xid = struct.unpack("<Q", self.packet.read(8))[0]
 
 

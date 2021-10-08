@@ -2,11 +2,7 @@ from typing import Any, Dict, List, Optional, Set, Type, Union
 
 import xstruct as struct
 from asyncmy import Connection
-from asyncmy.constants.COMMAND import (
-    COM_BINLOG_DUMP,
-    COM_BINLOG_DUMP_GTID,
-    COM_REGISTER_SLAVE,
-)
+from asyncmy.constants.COMMAND import COM_BINLOG_DUMP, COM_BINLOG_DUMP_GTID, COM_REGISTER_SLAVE
 from asyncmy.cursors import DictCursor
 from asyncmy.replication.constants import (
     BINLOG_DUMP_NON_BLOCK,
@@ -87,15 +83,9 @@ class ReportSlave:
             struct.pack("<i", packet_len)
             + struct.pack("!B", COM_REGISTER_SLAVE)
             + struct.pack("<L", server_id)
-            + struct.pack(
-                "<%dp" % min(max_string_len, len_hostname + 1), self._hostname.encode()
-            )
-            + struct.pack(
-                "<%dp" % min(max_string_len, len_username + 1), self._username.encode()
-            )
-            + struct.pack(
-                "<%dp" % min(max_string_len, len_password + 1), self._password.encode()
-            )
+            + struct.pack("<%dp" % min(max_string_len, len_hostname + 1), self._hostname.encode())
+            + struct.pack("<%dp" % min(max_string_len, len_username + 1), self._username.encode())
+            + struct.pack("<%dp" % min(max_string_len, len_password + 1), self._password.encode())
             + struct.pack("<H", self._port)
             + struct.pack("<l", 0)
             + struct.pack("<l", master_id)
@@ -198,9 +188,7 @@ class BinLogStream:
         self._use_checksum = await self._checksum_enable()
         async with self._connection.cursor() as cursor:
             if self._use_checksum:
-                await cursor.execute(
-                    "set @master_binlog_checksum= @@global.binlog_checksum"
-                )
+                await cursor.execute("set @master_binlog_checksum= @@global.binlog_checksum")
             if self._slave_uuid:
                 await cursor.execute(f"set @slave_uuid= '{self._slave_uuid}'")
             if self._slave_heartbeat:
@@ -215,13 +203,11 @@ class BinLogStream:
                     await cursor.execute("SHOW MASTER STATUS")
                     master_status = await cursor.fetchone()
                     if master_status is None:
-                        raise BinLogNotEnabledError(
-                            "MySQL binary logging is not enabled."
-                        )
+                        raise BinLogNotEnabledError("MySQL binary logging is not enabled.")
                     self._master_log_file, self._master_log_position = master_status[:2]
-                prelude = struct.pack(
-                    "<i", len(self._master_log_file) + 11
-                ) + struct.pack("!B", COM_BINLOG_DUMP)
+                prelude = struct.pack("<i", len(self._master_log_file) + 11) + struct.pack(
+                    "!B", COM_BINLOG_DUMP
+                )
 
                 if self._resume_stream:
                     prelude += struct.pack("<I", self._master_log_position)
@@ -321,15 +307,10 @@ class BinLogStream:
         if self._skip_to_timestamp and binlog_event.timestamp < self._skip_to_timestamp:
             return
 
-        if (
-            binlog_event.event_type == TABLE_MAP_EVENT
-            and binlog_event.event is not None
-        ):
+        if binlog_event.event_type == TABLE_MAP_EVENT and binlog_event.event is not None:
             self._table_map[binlog_event.event.table_id] = binlog_event.event.table
 
-        if binlog_event.event is None or (
-            binlog_event.event.__class__ not in self._allowed_events
-        ):
+        if binlog_event.event is None or (binlog_event.event.__class__ not in self._allowed_events):
             return
 
         return binlog_event.event

@@ -59,9 +59,7 @@ def _init_nacl():
 
         _nacl_bindings = bindings
     except ImportError:
-        raise RuntimeError(
-            "'pynacl' package is required for ed25519_password auth method"
-        )
+        raise RuntimeError("'pynacl' package is required for ed25519_password auth method")
 
 
 def _scalar_clamp(s32):
@@ -237,8 +235,7 @@ async def caching_sha2_password_auth(conn, pkt):
         pkt = await _roundtrip(conn, b"\x02")  # Request public key
         if not pkt.is_extra_auth_data():
             raise OperationalError(
-                "caching sha2: Unknown packet for public key: %s"
-                % pkt.get_all_data()[:1]
+                "caching sha2: Unknown packet for public key: %s" % pkt.get_all_data()[:1]
             )
 
         conn._server_public_key = pkt.get_all_data()[1:]
