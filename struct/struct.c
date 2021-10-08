@@ -750,7 +750,7 @@ int struct_pack(unsigned char *buf, const char *fmt, ...)
    return packed_len;
 }
 
-int struct_pack_into(int offset, void *buf, const char *fmt, ...)
+int struct_pack_into(int offset, unsigned char *buf, const char *fmt, ...)
 {
   va_list args;
   int packed_len = 0;
@@ -776,14 +776,14 @@ int struct_unpack(unsigned char *buf, const char *fmt, ...)
 }
 
 
-int struct_unpack_from(int offset, const void *buf, const char *fmt, ...)
+int struct_unpack_from(int offset, unsigned char *buf, const char *fmt, ...)
 {
   va_list args;
   int unpacked_len = 0;
 
   va_start(args, fmt);
   unpacked_len = unpack_va_list(
-      (const unsigned char *)buf, offset, fmt, args);
+      (unsigned char *)buf, offset, fmt, args);
   va_end(args);
 
   return unpacked_len;

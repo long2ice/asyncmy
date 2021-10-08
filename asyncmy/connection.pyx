@@ -508,7 +508,7 @@ class Connection:
 
             if self._unix_socket:
                 self._reader, self._writer = await asyncio.wait_for(asyncio.open_unix_connection(self._unix_socket),
-                                                                    timeout=self._connect_timeout,)
+                                                                    timeout=self._connect_timeout, )
                 self.host_info = "Localhost via UNIX socket"
                 self._secure = True
             else:
@@ -525,8 +525,8 @@ class Connection:
                             continue
                         raise
                 self.host_info = "socket %s:%d" % (self._host, self._port)
-
-            self._set_nodelay(True)
+            if not self._unix_socket:
+                self._set_nodelay(True)
             self._next_seq_id = 0
 
             await self._get_server_information()
