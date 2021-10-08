@@ -1,6 +1,12 @@
 class Table:
     def __init__(
-        self, column_schemas, table_id, schema: str, table: str, columns, primary_key=None
+        self,
+        column_schemas,
+        table_id,
+        schema: str,
+        table: str,
+        columns,
+        primary_key=None,
     ):
         if primary_key is None:
             primary_key = [c.data["name"] for c in columns if c.data["is_primary"]]

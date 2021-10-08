@@ -9,12 +9,6 @@ jobs:
     steps:
       - name: Start MySQL
         run: sudo systemctl start mysql.service
-      - uses: actions/cache@v2
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/poetry.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
         with:
@@ -22,9 +16,13 @@ jobs:
       - name: Install and configure Poetry
         uses: snok/install-poetry@v1
         with:
-          virtualenvs-create: false
-      - name: Install requirements
-        run: make deps
+          virtualenvs-in-project: true
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v2
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
       - name: Run ci
         env:
           MYSQL_PASS: root

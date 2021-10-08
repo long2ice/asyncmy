@@ -1,5 +1,4 @@
 import xstruct as struct
-
 from asyncmy.constants.FIELD_TYPE import (
     BIT,
     BLOB,
@@ -78,11 +77,13 @@ class Column:
     def _read_enum_metadata(self, column_schema):
         enums = column_schema["COLUMN_TYPE"]
         if self.type == ENUM:
-            self.enum_values = [""] + enums.replace("enum(", "").replace(")", "").replace(
-                "'", ""
-            ).split(",")
+            self.enum_values = [""] + enums.replace("enum(", "").replace(
+                ")", ""
+            ).replace("'", "").split(",")
         else:
-            self.set_values = enums.replace("set(", "").replace(")", "").replace("'", "").split(",")
+            self.set_values = (
+                enums.replace("set(", "").replace(")", "").replace("'", "").split(",")
+            )
 
     @property
     def data(self):

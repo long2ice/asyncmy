@@ -1,5 +1,4 @@
 import xstruct as struct
-
 from asyncmy.constants.COLUMN import (
     NULL_COLUMN,
     UNSIGNED_CHAR_COLUMN,
@@ -197,7 +196,9 @@ class BinLogPacket:
         if hasattr(self._packet, key):
             return getattr(self._packet, key)
 
-        raise AttributeError("%s instance has no attribute '%s'" % (self.__class__, key))
+        raise AttributeError(
+            "%s instance has no attribute '%s'" % (self.__class__, key)
+        )
 
     def read_int_be_by_size(self, size):
         """Read a big endian integer values based on byte number"""

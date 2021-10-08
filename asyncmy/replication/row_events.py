@@ -2,7 +2,6 @@ import datetime
 import decimal
 
 import xstruct as struct
-
 from asyncmy.charset import charset_by_name
 from asyncmy.constants.FIELD_TYPE import (
     BIT,
@@ -88,7 +87,9 @@ class RowsEvent(BinLogEvent):
             or self.event_type == DELETE_ROWS_EVENT_V2
             or self.event_type == UPDATE_ROWS_EVENT_V2
         ):
-            self.flags, self.extra_data_length = struct.unpack("<HH", self.packet.read(4))
+            self.flags, self.extra_data_length = struct.unpack(
+                "<HH", self.packet.read(4)
+            )
             self.extra_data = self.packet.read(self.extra_data_length / 8)
         else:
             self.flags = struct.unpack("<H", self.packet.read(2))[0]
@@ -97,7 +98,9 @@ class RowsEvent(BinLogEvent):
         self.number_of_columns = self.packet.read_length_coded_binary()
         self.columns = self.table_map[self.table_id].columns
 
-        if len(self.columns) == 0:  # could not read the table metadata, probably already dropped
+        if (
+            len(self.columns) == 0
+        ):  # could not read the table metadata, probably already dropped
             self.complete = False
             if self._fail_on_table_metadata_unavailable:
                 raise TableMetadataUnavailableError(self.table)
@@ -172,7 +175,9 @@ class RowsEvent(BinLogEvent):
             elif column.type == DATE:
                 values[name] = self.__read_date()
             elif column.type == TIMESTAMP:
-                values[name] = datetime.datetime.fromtimestamp(self.packet.read_uint32())
+                values[name] = datetime.datetime.fromtimestamp(
+                    self.packet.read_uint32()
+                )
 
             # For new date format:
             elif column.type == DATETIME2:
@@ -181,7 +186,8 @@ class RowsEvent(BinLogEvent):
                 values[name] = self.__read_time2(column)
             elif column.type == TIMESTAMP2:
                 values[name] = self.__add_fsp_to_time(
-                    datetime.datetime.fromtimestamp(self.packet.read_int_be_by_size(4)), column
+                    datetime.datetime.fromtimestamp(self.packet.read_int_be_by_size(4)),
+                    column,
                 )
             elif column.type == LONGLONG:
                 if unsigned:
@@ -191,24 +197,34 @@ class RowsEvent(BinLogEvent):
             elif column.type == YEAR:
                 values[name] = self.packet.read_uint8() + 1900
             elif column.type == ENUM:
-                values[name] = column.enum_values[self.packet.read_uint_by_size(column.size)]
+                values[name] = column.enum_values[
+                    self.packet.read_uint_by_size(column.size)
+                ]
             elif column.type == SET:
                 # We read set columns as a bitmap telling us which options
                 # are enabled
                 bit_mask = self.packet.read_uint_by_size(column.size)
                 values[name] = (
-                    set(val for idx, val in enumerate(column.set_values) if bit_mask & 2 ** idx)
+                    set(
+                        val
+                        for idx, val in enumerate(column.set_values)
+                        if bit_mask & 2 ** idx
+                    )
                     or None
                 )
 
             elif column.type == BIT:
                 values[name] = self.__read_bit(column)
             elif column.type == GEOMETRY:
-                values[name] = self.packet.read_length_coded_pascal_string(column.length_size)
+                values[name] = self.packet.read_length_coded_pascal_string(
+                    column.length_size
+                )
             elif column.type == JSON:
                 values[name] = self.packet.read_binary_json(column.length_size)
             else:
-                raise NotImplementedError("Unknown MySQL column type: %d" % (column.type))
+                raise NotImplementedError(
+                    "Unknown MySQL column type: %d" % (column.type)
+                )
 
             null_bitmap_index += 1
 
@@ -277,7 +293,9 @@ class RowsEvent(BinLogEvent):
     def __read_time(self):
         time = self.packet.read_uint24()
         date = datetime.timedelta(
-            hours=int(time / 10000), minutes=int((time % 10000) / 100), seconds=int(time % 100)
+            hours=int(time / 10000),
+            minutes=int((time % 10000) / 100),
+            seconds=int(time % 100),
         )
         return date
 
@@ -463,7 +481,9 @@ class DeleteRowsEvent(RowsEvent):
             from_packet, event_size, table_map, ctl_connection, **kwargs
         )
         if self._processed:
-            self.columns_present_bitmap = self.packet.read((self.number_of_columns + 7) / 8)
+            self.columns_present_bitmap = self.packet.read(
+                (self.number_of_columns + 7) / 8
+            )
 
     def _fetch_one_row(self):
         return {"values": self._read_column_data(self.columns_present_bitmap)}
@@ -480,7 +500,9 @@ class WriteRowsEvent(RowsEvent):
             from_packet, event_size, table_map, ctl_connection, **kwargs
         )
         if self._processed:
-            self.columns_present_bitmap = self.packet.read((self.number_of_columns + 7) / 8)
+            self.columns_present_bitmap = self.packet.read(
+                (self.number_of_columns + 7) / 8
+            )
 
     def _fetch_one_row(self):
         return {"values": self._read_column_data(self.columns_present_bitmap)}
@@ -503,8 +525,12 @@ class UpdateRowsEvent(RowsEvent):
         )
         if self._processed:
             # Body
-            self.columns_present_bitmap = self.packet.read((self.number_of_columns + 7) / 8)
-            self.columns_present_bitmap2 = self.packet.read((self.number_of_columns + 7) / 8)
+            self.columns_present_bitmap = self.packet.read(
+                (self.number_of_columns + 7) / 8
+            )
+            self.columns_present_bitmap2 = self.packet.read(
+                (self.number_of_columns + 7) / 8
+            )
 
     def _fetch_one_row(self):
         row = {
@@ -574,7 +600,9 @@ class TableMapEvent(BinLogEvent):
             self.column_schemas = self._table_map[self.table_id].column_schemas
         else:
             self.column_schemas = await (
-                await self._connection._get_table_information(self.schema, self.table_name)
+                await self._connection._get_table_information(
+                    self.schema, self.table_name
+                )
             )
         ordinal_pos_loc = 0
 
@@ -611,5 +639,9 @@ class TableMapEvent(BinLogEvent):
                 self.columns.append(col)
 
         self._table = Table(
-            self.column_schemas, self.table_id, self.schema, self.table_name, self.columns
+            self.column_schemas,
+            self.table_id,
+            self.schema,
+            self.table_name,
+            self.columns,
         )

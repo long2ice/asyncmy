@@ -31,7 +31,9 @@ class Gtid:
     @staticmethod
     def parse(gtid: str):
         m = re.search(
-            "^([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})" "((?::[0-9-]+)+)$", gtid
+            "^([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})"
+            "((?::[0-9-]+)+)$",
+            gtid,
         )
         if not m:
             raise ValueError("GTID format is incorrect: %r" % (gtid,))
@@ -98,7 +100,8 @@ class Gtid:
             return False
 
         return all(
-            any(self.contains(me, them) for me in self.intervals) for them in other.intervals
+            any(self.contains(me, them) for me in self.intervals)
+            for them in other.intervals
         )
 
     def __init__(self, gtid: str, sid=None, intervals=None):
@@ -118,7 +121,9 @@ class Gtid:
         """Include the transactions of this gtid. Raise if the
         attempted merge has different SID"""
         if self.sid != other.sid:
-            raise Exception("Attempt to merge different SID" "%s != %s" % (self.sid, other.sid))
+            raise Exception(
+                "Attempt to merge different SID" "%s != %s" % (self.sid, other.sid)
+            )
 
         result = Gtid(str(self))
 
@@ -279,7 +284,8 @@ class GtidSet:
 
     def encoded(self):
         return b"" + (
-            struct.pack("<Q", len(self._gtid_set)) + b"".join(x.encode() for x in self._gtid_set)
+            struct.pack("<Q", len(self._gtid_set))
+            + b"".join(x.encode() for x in self._gtid_set)
         )
 
     encode = encoded
