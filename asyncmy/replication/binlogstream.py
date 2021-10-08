@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Set, Type, Union
 
 import xstruct as struct
+
 from asyncmy import Connection
 from asyncmy.constants.COMMAND import COM_BINLOG_DUMP, COM_BINLOG_DUMP_GTID, COM_REGISTER_SLAVE
 from asyncmy.cursors import DictCursor

@@ -1,4 +1,5 @@
 import xstruct as struct
+
 from asyncmy.constants.COLUMN import (
     NULL_COLUMN,
     UNSIGNED_CHAR_COLUMN,

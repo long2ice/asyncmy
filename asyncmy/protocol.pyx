@@ -1,4 +1,3 @@
-import xstruct as struct
 
 from .constants.COLUMN import (NULL_COLUMN, UNSIGNED_CHAR_COLUMN,
                                UNSIGNED_INT24_COLUMN, UNSIGNED_INT64_COLUMN,

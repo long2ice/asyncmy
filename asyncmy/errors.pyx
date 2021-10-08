@@ -1,5 +1,3 @@
-import xstruct as struct
-
 from .constants.ER import *
 from .structs import H
 
