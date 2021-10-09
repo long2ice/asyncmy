@@ -5,6 +5,7 @@
 ### 0.2.2
 
 - Fix bug. (#18)
+- Fix replication error.
 
 ### 0.2.1
 
