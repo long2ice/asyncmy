@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.2
+
+- Fix bug. (#18)
+
 ### 0.2.1
 
 - Fix `binlogstream` await. (#12)

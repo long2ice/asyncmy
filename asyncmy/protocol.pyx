@@ -136,7 +136,7 @@ cdef class MysqlPacket:
         elif c == UNSIGNED_INT64_COLUMN:
             return self.read_uint64()
 
-    cpdef bytes read_length_coded_string(self):
+    cpdef read_length_coded_string(self):
         """
         Read a 'Length Coded String' from the data buffer.
 
@@ -146,7 +146,7 @@ cdef class MysqlPacket:
         """
         length = self.read_length_encoded_integer()
         if length == 0:
-            return b""
+            return None
         return self.read(length)
 
     cpdef tuple read_struct(self, str fmt):

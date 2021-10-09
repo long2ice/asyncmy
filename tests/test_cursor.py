@@ -46,6 +46,13 @@ async def test_insert(connection):
 
 
 @pytest.mark.asyncio
+async def test_delete(connection):
+    async with connection.cursor() as cursor:
+        rows = await cursor.execute("delete from test.asyncmy where id = -1")
+        assert rows == 0
+
+
+@pytest.mark.asyncio
 async def test_executemany(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.executemany(

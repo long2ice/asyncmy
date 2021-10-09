@@ -1,6 +1,6 @@
 import binascii
+import struct
 
-import xstruct as struct
 from asyncmy.replication.utils import byte2int, int2byte
 
 
