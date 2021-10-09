@@ -117,7 +117,7 @@ cdef class MysqlPacket:
         self._position = end_pos + 1
         return result
 
-    cpdef unsigned long read_length_encoded_integer(self):
+    cpdef read_length_encoded_integer(self):
         """
         Read a 'Length Coded Binary' number from the data buffer.
 
@@ -126,7 +126,7 @@ cdef class MysqlPacket:
         """
         cdef int c = self.read_uint8()
         if c == NULL_COLUMN:
-            return 0
+            return None
         if c < UNSIGNED_CHAR_COLUMN:
             return c
         elif c == UNSIGNED_SHORT_COLUMN:
@@ -145,7 +145,7 @@ cdef class MysqlPacket:
         that many bytes of binary data.  (For example "cat" would be "3cat".)
         """
         length = self.read_length_encoded_integer()
-        if length == 0:
+        if length is None:
             return None
         return self.read(length)
 
