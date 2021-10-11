@@ -1,4 +1,5 @@
-import xstruct as struct
+import struct
+
 from asyncmy.constants.FIELD_TYPE import (
     BIT,
     BLOB,

@@ -704,7 +704,7 @@ class Connection:
 
         if self._ssl_context:
             # capablities, max packet, charset
-            data = IIB.pack('<IIB', self._client_flag, 16777216, 33)
+            data = IIB.pack( self._client_flag, 16777216, 33)
             data += b'\x00' * (32 - len(data))
 
             self.write_packet(data)

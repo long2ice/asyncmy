@@ -14,8 +14,8 @@ async def main():
         conn,
         ctl_conn,
         1,
-        master_log_file="binlog.000019",
-        master_log_position=155276,
+        master_log_file="binlog.000020",
+        master_log_position=405886343,
         resume_stream=True,
         blocking=True,
     )
