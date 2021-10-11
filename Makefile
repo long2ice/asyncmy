@@ -24,7 +24,7 @@ test: deps
 clean:
 	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so
 
-build: deps
+build:
 	@poetry build
 
 benchmark: deps
