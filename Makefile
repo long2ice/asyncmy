@@ -25,6 +25,7 @@ clean:
 	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so
 
 build:
+	@pip install cython
 	@poetry build
 
 benchmark: deps
