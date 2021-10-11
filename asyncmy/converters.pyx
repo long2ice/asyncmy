@@ -32,7 +32,7 @@ cpdef escape_dict(dict val, str charset, mapping=None):
         n[k] = quoted
     return n
 
-cpdef escape_sequence(list val, str charset, mapping=None):
+cpdef escape_sequence(tuple val, str charset, mapping=None):
     n = []
     for item in val:
         quoted = escape_item(item, charset, mapping)
