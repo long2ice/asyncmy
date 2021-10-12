@@ -636,7 +636,7 @@ class Connection:
             await result.read()
         self._result = result
         self._affected_rows = result.affected_rows
-        if result.server_status is not None:
+        if result.server_status != 0:
             self.server_status = result.server_status
 
     def insert_id(self):
@@ -704,7 +704,7 @@ class Connection:
 
         if self._ssl_context:
             # capablities, max packet, charset
-            data = IIB.pack( self._client_flag, 16777216, 33)
+            data = IIB.pack(self._client_flag, 16777216, 33)
             data += b'\x00' * (32 - len(data))
 
             self.write_packet(data)
@@ -1141,7 +1141,7 @@ cdef class MySQLResult:
         self.affected_rows = len(rows)
         self.rows = tuple(rows)
 
-    def _read_row_from_packet(self, packet):
+    cpdef _read_row_from_packet(self, packet: MysqlPacket):
         row = []
         for encoding, converter in self.converters:
             try:

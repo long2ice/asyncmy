@@ -306,7 +306,7 @@ cdef class Cursor:
         self._executed = q
         return args
 
-    cpdef  fetchone(self):
+    cpdef fetchone(self):
         """Fetch the next row."""
         self._check_executed()
         fut = self._loop.create_future()
@@ -366,7 +366,7 @@ cdef class Cursor:
         await self._do_get_result()
         return self.rowcount
 
-    cdef _clear_result(self):
+    cpdef _clear_result(self):
         self.rownumber = 0
         self._result = None
         self.rowcount = 0
