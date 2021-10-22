@@ -1,17 +1,6 @@
 from distutils.command.build_ext import build_ext  # type:ignore
-from distutils.extension import Extension
 
 from Cython.Build import cythonize
-
-extensions = [
-    Extension(
-        name='asyncmy',
-        sources=[
-            "asyncmy/*.pyx",
-            "asyncmy/sa/*.pyx",
-        ],
-    )
-]
 
 
 def build(setup_kwargs):

@@ -1,4 +1,4 @@
-checkfiles = asyncmy/ asyncmy/sa tests/ examples/ conftest.py build.py
+checkfiles = asyncmy/ asyncmy/sa/ tests/ examples/ conftest.py build.py
 py_warn = PYTHONDEVMODE=1
 MYSQL_PASS ?= "123456"
 
