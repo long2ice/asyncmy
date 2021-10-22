@@ -129,4 +129,6 @@ dmypy.json
 .pyre/
 .idea
 asyncmy/*.c
+asyncmy/sa/*.c
 cython_debug
+setup.py

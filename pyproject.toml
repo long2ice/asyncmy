@@ -17,6 +17,7 @@ version = "0.2.3"
 
 [tool.poetry.dependencies]
 python = "^3.7"
+SQLAlchemy = ">=1.0,<2"
 
 [tool.poetry.dev-dependencies]
 aiomysql = "*"
@@ -33,6 +34,7 @@ pytest = "*"
 pytest-asyncio = "*"
 pytest-mock = "*"
 pytest-xdist = "*"
+sqlalchemy-stubs = "*"
 uvloop = { version = "*", markers = "sys_platform != 'win32'" }
 
 [build-system]
