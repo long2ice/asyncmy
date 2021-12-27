@@ -425,7 +425,7 @@ class Connection:
         """
         return self.escape(obj, self._encoders)
 
-    def escape_string(self, str s):
+    def escape_string(self, s):
         if self.server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES:
             return s.replace("'", "''")
         return converters.escape_string(s)

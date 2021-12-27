@@ -65,7 +65,7 @@ _escape_table[ord("\032")] = "\\Z"
 _escape_table[ord('"')] = '\\"'
 _escape_table[ord("'")] = "\\'"
 
-cpdef str escape_string(str value, mapping=None):
+cpdef str escape_string(value, mapping=None):
     """
     escapes *value* without adding quote.
 
@@ -79,7 +79,7 @@ cpdef str escape_bytes_prefixed(bytes value, mapping=None):
 cpdef str escape_bytes(bytes value, mapping=None):
     return "'%s'" % value.decode(b"ascii", "surrogateescape").translate(_escape_table)
 
-cpdef str escape_str(str value, mapping=None):
+cpdef str escape_str(value, mapping=None):
     return "'%s'" % escape_string(str(value), mapping)
 
 cpdef str escape_None(value, mapping=None):

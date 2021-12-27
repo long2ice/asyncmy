@@ -1,3 +1,5 @@
+from enum import Enum
+
 import pytest
 
 from asyncmy.cursors import DictCursor
@@ -93,3 +95,25 @@ async def test_table_ddl(connection):
         add_column_sql = "alter table test.alter_table add column c varchar(20)"
         await cursor.execute(add_column_sql)
         await cursor.execute("drop table test.alter_table")
+
+
+class EnumValue(str, Enum):
+    VALUE = "1"
+
+
+@pytest.mark.asyncio
+async def test_insert_enum(connection):
+    async with connection.cursor(cursor=DictCursor) as cursor:
+        rows = await cursor.execute(
+            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            (
+                -1,
+                1,
+                "2020-08-08",
+                "2020-08-08 00:00:00",
+                1,
+                EnumValue.VALUE,
+                1,
+            ),
+        )
+        assert rows == 1

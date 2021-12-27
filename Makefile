@@ -9,26 +9,26 @@ deps:
 	@poetry install
 
 style: deps
-	poetry run isort -src $(checkfiles)
-	poetry run black $(checkfiles)
+	@isort -src $(checkfiles)
+	@black $(checkfiles)
 
 check: deps
-	poetry run black --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
-	poetry run flake8 $(checkfiles)
-	poetry run bandit -x tests -r $(checkfiles)
-	poetry run mypy $(checkfiles)
+	@black --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
+	@flake8 $(checkfiles)
+	@bandit -x tests -r $(checkfiles)
+	@mypy $(checkfiles)
 
 test: deps
-	$(py_warn) MYSQL_PASS=$(MYSQL_PASS) poetry run pytest
+	$(py_warn) MYSQL_PASS=$(MYSQL_PASS) pytest
 
 clean:
 	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so
 
 build:
-	@poetry run pip install cython
+	@pip install cython
 	@poetry build
 
 benchmark: deps
-	python benchmark/main.py
+	@python benchmark/main.py
 
 ci: check test

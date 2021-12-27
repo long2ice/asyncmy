@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.4
+
+- Fix `escape_string` for enum type. (#30)
+
 ### 0.2.3
 
 - Fix `escape_sequence`. (#20)
