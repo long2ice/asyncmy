@@ -45,7 +45,7 @@ cpdef escape_set(set val, str charset, mapping=None):
 cpdef escape_bool(int value, mapping=None):
     return str(int(value))
 
-cpdef escape_int(long value, mapping=None):
+cpdef escape_int(long long value, mapping=None):
     return str(value)
 
 def escape_float(value, mapping=None):
