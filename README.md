@@ -1,4 +1,4 @@
-# asyncmy - A fast asyncio MySQL driver
+# asyncmy - A fast asyncio MySQL/MariaDB driver
 
 [![image](https://img.shields.io/pypi/v/asyncmy.svg?style=flat)](https://pypi.python.org/pypi/asyncmy)
 [![image](https://img.shields.io/github/license/long2ice/asyncmy)](https://github.com/long2ice/asyncmy)
@@ -7,15 +7,16 @@
 
 ## Introduction
 
-`asyncmy` is a fast asyncio MySQL driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL)
+`asyncmy` is a fast asyncio MySQL/MariaDB driver, which reuse most of [pymysql](https://github.com/PyMySQL/PyMySQL)
 and [aiomysql](https://github.com/aio-libs/aiomysql) but rewrite core protocol with [cython](https://cython.org/) to
 speedup.
 
 ## Features
 
 - API compatible with [aiomysql](https://github.com/aio-libs/aiomysql).
-- Faster with [cython](https://cython.org/).
-- MySQL replication protocol support.
+- Faster by [cython](https://cython.org/).
+- MySQL replication protocol support with `asyncio`.
+- Tested both MySQL and MariaDB in [CI](https://github.com/long2ice/asyncmy/blob/dev/.github/workflows/ci.yml).
 
 ## Benchmark
 
@@ -37,25 +38,30 @@ The result comes from [benchmark](./benchmark).
 ```shell
 pip install asyncmy
 ```
+
 ### Installing on Windows
+
 To install asyncmy on Windows, you need to install the tools needed to build it.
 
 1. Download *Microsoft C++ Build Tools* from https://visualstudio.microsoft.com/visual-cpp-build-tools/
 2. Run CMD as Admin (not required but recommended) and navigate to the folder when your installer is downloaded
-3. Installer executable should look like this `vs_buildtools__XXXXXXXXX.XXXXXXXXXX.exe`, it will be easier if you rename it to just `vs_buildtools.exe`
+3. Installer executable should look like this `vs_buildtools__XXXXXXXXX.XXXXXXXXXX.exe`, it will be easier if you rename
+   it to just `vs_buildtools.exe`
 4. Run this command (Make sure you have about 5-6GB of free storage)
+
 ```shell
 vs_buildtools.exe --norestart --passive --downloadThenInstall --includeRecommended --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Workload.MSBuildTools
 ```
+
 5. Wait until the installation is finished
 6. After installation will finish, restart your computer
-7. Install asyncmy via PIP 
+7. Install asyncmy via PIP
+
 ```shell
 pip install asyncmy
 ```
 
 Now you can uninstall previously installed tools.
-
 
 ## Usage
 
