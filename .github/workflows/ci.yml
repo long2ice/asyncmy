@@ -7,12 +7,19 @@ on:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    services:
+      database:
+        image: ${{ matrix.database }}
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: 123456
+        options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 5
     strategy:
       matrix:
         python-version: [ "3.7", "3.8", "3.9", "3.10" ]
+        database: [ "mysql", "mariadb" ]
     steps:
-      - name: Start MySQL
-        run: sudo systemctl start mysql.service
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
         with:
@@ -22,6 +29,4 @@ jobs:
           pip install -U pip poetry
           poetry config virtualenvs.create false
       - name: Run ci
-        env:
-          MYSQL_PASS: root
         run: make ci
