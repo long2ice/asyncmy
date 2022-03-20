@@ -102,24 +102,24 @@ cpdef str escape_time(obj, mapping=None):
         fmt = "'{0.hour:02}:{0.minute:02}:{0.second:02}'"
     return fmt.format(obj)
 
-cpdef str  escape_datetime(obj, mapping=None):
+cpdef str escape_datetime(obj, mapping=None):
     if obj.microsecond:
         fmt = "'{0.year:04}-{0.month:02}-{0.day:02} {0.hour:02}:{0.minute:02}:{0.second:02}.{0.microsecond:06}'"
     else:
         fmt = "'{0.year:04}-{0.month:02}-{0.day:02} {0.hour:02}:{0.minute:02}:{0.second:02}'"
     return fmt.format(obj)
 
-cpdef str  escape_date(obj, mapping=None):
+cpdef str escape_date(obj, mapping=None):
     fmt = "'{0.year:04}-{0.month:02}-{0.day:02}'"
     return fmt.format(obj)
 
-cpdef str  escape_struct_time(obj, mapping=None):
+cpdef str escape_struct_time(obj, mapping=None):
     return escape_datetime(datetime.datetime(*obj[:6]))
 
-cpdef str  decimal2literal(o, d):
+cpdef str decimal2literal(o, d):
     return format(o, "f")
 
-cpdef int  _convert_second_fraction(s):
+cpdef int _convert_second_fraction(s):
     if not s:
         return 0
     # Pad zeros to ensure the fraction length in microseconds
@@ -313,7 +313,7 @@ cdef dict decoders = {
     YEAR: int,
     TIMESTAMP: convert_datetime,
     DATETIME: convert_datetime,
-    TIME: convert_timedelta,
+    TIME: convert_time,
     DATE: convert_date,
     BLOB: through,
     TINY_BLOB: through,

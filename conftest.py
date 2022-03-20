@@ -46,6 +46,7 @@ async def initialize_tests(connection):
   `decimal` decimal(10,2) DEFAULT NULL,
   `date` date DEFAULT NULL,
   `datetime` datetime DEFAULT NULL,
+  `time` time DEFAULT NULL,
   `float` float DEFAULT NULL,
   `string` varchar(200) DEFAULT NULL,
   `tinyint` tinyint DEFAULT NULL,

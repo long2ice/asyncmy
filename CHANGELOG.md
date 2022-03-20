@@ -5,6 +5,7 @@
 ### 0.2.4
 
 - Fix `escape_string` for enum type. (#30)
+- `TIME` return `datetime.time` object.
 
 ### 0.2.3
 

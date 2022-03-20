@@ -1,3 +1,5 @@
+import datetime
+from decimal import Decimal
 from enum import Enum
 
 import pytest
@@ -33,18 +35,33 @@ async def test_dict_cursor(connection):
 async def test_insert(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.execute(
-            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, time, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
-                -1,
+                1,
                 1,
                 "2020-08-08",
                 "2020-08-08 00:00:00",
+                "00:00:00",
                 1,
                 "1",
                 1,
             ),
         )
         assert rows == 1
+        await cursor.execute("select * from test.asyncmy where id = %s", (cursor.lastrowid,))
+        result = await cursor.fetchall()
+        assert result == [
+            {
+                "id": 1,
+                "decimal": Decimal("1.00"),
+                "date": datetime.date(2020, 8, 8),
+                "datetime": datetime.datetime(2020, 8, 8, 0, 0),
+                "time": datetime.time.fromisoformat("00:00"),
+                "float": 1.0,
+                "string": "1",
+                "tinyint": 1,
+            }
+        ]
 
 
 @pytest.mark.asyncio
@@ -58,12 +75,13 @@ async def test_delete(connection):
 async def test_executemany(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.executemany(
-            """INSERT INTO test.asyncmy(`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(`decimal`, date, datetime, time, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             [
                 (
                     1,
                     "2020-08-08",
                     "2020-08-08 00:00:00",
+                    "00:00:00",
                     1,
                     "1",
                     1,
@@ -72,6 +90,7 @@ async def test_executemany(connection):
                     1,
                     "2020-08-08",
                     "2020-08-08 00:00:00",
+                    "00:00:00",
                     1,
                     "1",
                     1,
@@ -105,12 +124,13 @@ class EnumValue(str, Enum):
 async def test_insert_enum(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.execute(
-            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(id, `decimal`, date, datetime, time, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 -1,
                 1,
                 "2020-08-08",
                 "2020-08-08 00:00:00",
+                "00:00:00",
                 1,
                 EnumValue.VALUE,
                 1,
