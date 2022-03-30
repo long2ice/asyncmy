@@ -39,7 +39,7 @@ class ReportSlave:
     def __init__(self, value: Union[str, tuple, dict]):
         self._hostname = ""
         self._username = ""
-        self._password = ""
+        self._password = ""  # nosec: B105
         self._port = 0
         if isinstance(value, (tuple, list)):
             try:

@@ -313,7 +313,7 @@ cdef dict decoders = {
     YEAR: int,
     TIMESTAMP: convert_datetime,
     DATETIME: convert_datetime,
-    TIME: convert_time,
+    TIME: convert_timedelta,
     DATE: convert_date,
     BLOB: through,
     TINY_BLOB: through,

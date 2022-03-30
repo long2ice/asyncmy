@@ -1,7 +1,7 @@
 import asyncio
 import os
 
-import pytest
+import pytest_asyncio
 
 import asyncmy
 from asyncmy import connect
@@ -16,7 +16,7 @@ connection_kwargs = dict(
 )
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 def event_loop():
     policy = asyncio.get_event_loop_policy()
     res = policy.new_event_loop()
@@ -29,14 +29,14 @@ def event_loop():
     res._close()
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 async def connection():
     conn = await connect(**connection_kwargs)
     yield conn
     await conn.ensure_closed()
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", autouse=True)
 async def initialize_tests(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("create database if not exists test")
@@ -56,13 +56,13 @@ async def initialize_tests(connection):
         )
 
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest_asyncio.fixture(scope="function", autouse=True)
 async def truncate_table(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("truncate table test.asyncmy")
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 async def pool():
     pool = await asyncmy.create_pool(**connection_kwargs)
     yield pool

@@ -197,7 +197,7 @@ class RowsEvent(BinLogEvent):
                 # are enabled
                 bit_mask = self.packet.read_uint_by_size(column.size)
                 values[name] = (
-                    set(val for idx, val in enumerate(column.set_values) if bit_mask & 2 ** idx)
+                    set(val for idx, val in enumerate(column.set_values) if bit_mask & 2**idx)
                     or None
                 )
 

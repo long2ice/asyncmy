@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.5
+
+- Revert `TIME` return `datetime.time` object. (#37)
+
 ### 0.2.4
 
 - Fix `escape_string` for enum type. (#30)

@@ -56,7 +56,7 @@ async def test_insert(connection):
                 "decimal": Decimal("1.00"),
                 "date": datetime.date(2020, 8, 8),
                 "datetime": datetime.datetime(2020, 8, 8, 0, 0),
-                "time": datetime.time.fromisoformat("00:00"),
+                "time": datetime.timedelta(hours=0, minutes=0, seconds=0),
                 "float": 1.0,
                 "string": "1",
                 "tinyint": 1,
