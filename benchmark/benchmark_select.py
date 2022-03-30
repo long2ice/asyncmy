@@ -1,5 +1,6 @@
 import asyncio
 import time
+from rich.pretty import pprint
 
 import aiomysql
 import asyncmy
@@ -81,4 +82,4 @@ def benchmark_select():
 
 
 if __name__ == "__main__":
-    print(benchmark_select())
+    pprint(benchmark_select())

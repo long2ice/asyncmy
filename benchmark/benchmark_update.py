@@ -1,5 +1,6 @@
 import asyncio
 import time
+from rich.pretty import pprint
 
 import aiomysql
 import asyncmy
@@ -98,4 +99,4 @@ def benchmark_update():
 
 
 if __name__ == "__main__":
-    print(benchmark_update())
+    pprint(benchmark_update())

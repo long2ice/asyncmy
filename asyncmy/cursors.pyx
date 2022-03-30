@@ -184,7 +184,7 @@ cdef class Cursor:
             logger.info(f"[{round((end - start) * 1000, 2)}ms] {query}")
         return result
 
-    async def executemany(self, query, args):
+    async def executemany(self, query: str, args):
         """Run several data against one query.
 
         :param query: Query to execute.
@@ -392,7 +392,7 @@ cdef class Cursor:
             return
         for w in ws:
             msg = w[-1]
-            warnings.warn(str(msg), Warning, 4)
+            logger.warning(msg)
 
     Warning = errors.Warning
     Error = errors.Error
