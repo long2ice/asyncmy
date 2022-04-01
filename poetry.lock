@@ -388,6 +388,18 @@ python-versions = ">=3.6"
 diagrams = ["jinja2", "railroad-diagrams"]
 
 [[package]]
+name = "pyproject-flake8"
+version = "0.0.1a3"
+description = "pyproject-flake8 (`pflake8`), a monkey patching wrapper to connect flake8 with pyproject.toml configuration"
+category = "dev"
+optional = false
+python-versions = "*"
+
+[package.dependencies]
+flake8 = "*"
+tomli = {version = "*", markers = "python_version < \"3.11.0a7\""}
+
+[[package]]
 name = "pytest"
 version = "7.1.1"
 description = "pytest: simple powerful testing with Python"
@@ -564,7 +576,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "pytest-flake8", "pytest-
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.7"
-content-hash = "ddefc642a1f289a4ba059518d5829ebd0d8a99dc832926f33131a337e2746cbf"
+content-hash = "ad48a701abb6c08e647fd760d05b088f166d712b75567a15a27cb788b3bc4a46"
 
 [metadata.files]
 aiomysql = [
@@ -847,6 +859,10 @@ pymysql = [
 pyparsing = [
     {file = "pyparsing-3.0.7-py3-none-any.whl", hash = "sha256:a6c06a88f252e6c322f65faf8f418b16213b51bdfaece0524c1c1bc30c63c484"},
     {file = "pyparsing-3.0.7.tar.gz", hash = "sha256:18ee9022775d270c55187733956460083db60b37d0d0fb357445f3094eed3eea"},
+]
+pyproject-flake8 = [
+    {file = "pyproject-flake8-0.0.1a3.tar.gz", hash = "sha256:4e3e704c639e61d9ab75aadf44dbf31a07281035896ad7d725ed7f386fd79674"},
+    {file = "pyproject_flake8-0.0.1a3-py2.py3-none-any.whl", hash = "sha256:1f434780791df82e9ca2358f4c542a2b2fdd3a77e666a6ad3f60a6a1464da4e2"},
 ]
 pytest = [
     {file = "pytest-7.1.1-py3-none-any.whl", hash = "sha256:92f723789a8fdd7180b6b06483874feca4c48a5c76968e03bb3e7f806a1869ea"},

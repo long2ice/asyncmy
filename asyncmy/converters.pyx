@@ -66,7 +66,7 @@ _escape_table[ord("\032")] = "\\Z"
 _escape_table[ord('"')] = '\\"'
 _escape_table[ord("'")] = "\\'"
 
-cpdef str escape_string(str value, mapping: dict = None):
+cpdef str escape_string(value, mapping: dict = None):
     """
     escapes *value* without adding quote.
 
