@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.6
+
+- Fix raise_mysql_exception (#28)
+
 ### 0.2.5
 
 - Revert `TIME` return `datetime.time` object. (#37)

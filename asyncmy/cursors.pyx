@@ -2,7 +2,6 @@ import logging
 import re
 import time
 import typing
-import warnings
 
 from . import errors
 
@@ -17,7 +16,7 @@ RE_INSERT_VALUES = re.compile(
 )
 logger = logging.getLogger(__package__)
 if typing.TYPE_CHECKING:
-    from asyncmy.connection import Connection, MySQLResult
+    from asyncmy.connection import Connection
 
 cdef class Cursor:
     """
@@ -82,16 +81,16 @@ cdef class Cursor:
         else:
             raise StopAsyncIteration  # noqa
 
-    def _get_db(self):
+    cdef _get_db(self):
         if not self.connection:
             raise errors.ProgrammingError("Cursor closed")
         return self.connection
 
-    def _check_executed(self):
+    cdef _check_executed(self):
         if not self._executed:
             raise errors.ProgrammingError("execute() first")
 
-    def _conv_row(self, row):
+    cdef _conv_row(self, row):
         return row
 
     def setinputsizes(self, *args):
@@ -134,7 +133,7 @@ cdef class Cursor:
             # Worst case it will throw a Value error
             return conn.escape(args)
 
-    def mogrify(self, query, args=None):
+    cpdef mogrify(self, query, args=None):
         """
         Returns the exact string that would be sent to the database by calling the
         execute() method.
@@ -405,7 +404,6 @@ cdef class Cursor:
     ProgrammingError = errors.ProgrammingError
     NotSupportedError = errors.NotSupportedError
 
-
 class DictCursorMixin:
     # You can override this to use OrderedDict or other dict-like types.
     dict_type = dict
@@ -429,12 +427,10 @@ class DictCursorMixin:
             return None
         return self.dict_type(zip(self._fields, row))
 
-
 class DictCursor(DictCursorMixin, Cursor):
     """A cursor which returns results as a dictionary"""
 
-
-class SSCursor(Cursor):
+cdef class SSCursor(Cursor):
     """
     Unbuffered Cursor, mainly useful for queries that return a lot of data,
     or for connections to remote servers over a slow network.
@@ -450,7 +446,7 @@ class SSCursor(Cursor):
     possible to scroll backwards, as only the current row is held in memory.
     """
 
-    def _conv_row(self, row):
+    cdef _conv_row(self, row):
         return row
 
     async def close(self):
@@ -539,7 +535,6 @@ class SSCursor(Cursor):
             self.rownumber = value
         else:
             raise errors.ProgrammingError("unknown scroll mode %s" % mode)
-
 
 class SSDictCursor(DictCursorMixin, SSCursor):
     """An unbuffered cursor, which returns results as a dictionary"""

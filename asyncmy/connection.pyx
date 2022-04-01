@@ -1141,7 +1141,7 @@ cdef class MySQLResult:
         self.affected_rows = len(rows)
         self.rows = tuple(rows)
 
-    cpdef _read_row_from_packet(self, packet: MysqlPacket):
+    cdef _read_row_from_packet(self, packet: MysqlPacket):
         row = []
         for encoding, converter in self.converters:
             try:

@@ -1,7 +1,8 @@
-import datetime
 import re
 import time
 from decimal import Decimal
+
+from cpython cimport datetime
 
 from .constants.FIELD_TYPE import *
 from .errors import ProgrammingError
@@ -25,30 +26,30 @@ cpdef escape_item(val, str charset, mapping: dict = None):
         val = encoder(val, mapping)
     return val
 
-cpdef escape_dict(dict val, str charset, mapping: dict = None):
+cpdef dict escape_dict(dict val, str charset, mapping: dict = None):
     n = {}
     for k, v in val.items():
         quoted = escape_item(v, charset, mapping)
         n[k] = quoted
     return n
 
-cpdef escape_sequence(tuple val, str charset, mapping: dict = None):
+cpdef str escape_sequence(tuple val, str charset, mapping: dict = None):
     n = []
     for item in val:
         quoted = escape_item(item, charset, mapping)
         n.append(quoted)
     return "(" + ",".join(n) + ")"
 
-cpdef escape_set(set val, str charset, mapping: dict = None):
+cpdef str escape_set(set val, str charset, mapping: dict = None):
     return ",".join([escape_item(x, charset, mapping) for x in val])
 
-cpdef escape_bool(int value, mapping: dict = None):
+cpdef str escape_bool(int value, mapping: dict = None):
     return str(int(value))
 
-cpdef escape_int(long long value, mapping: dict = None):
+cpdef str escape_int(long long value, mapping: dict = None):
     return str(value)
 
-cpdef escape_float(float value, mapping: dict = None):
+cpdef str escape_float(float value, mapping: dict = None):
     s = repr(value)
     if s in ("inf", "nan"):
         raise ProgrammingError("%s can not be used with MySQL" % s)
@@ -65,7 +66,7 @@ _escape_table[ord("\032")] = "\\Z"
 _escape_table[ord('"')] = '\\"'
 _escape_table[ord("'")] = "\\'"
 
-cpdef str escape_string(value, mapping: dict = None):
+cpdef str escape_string(str value, mapping: dict = None):
     """
     escapes *value* without adding quote.
 
@@ -79,13 +80,13 @@ cpdef str escape_bytes_prefixed(bytes value, mapping: dict = None):
 cpdef str escape_bytes(bytes value, mapping: dict = None):
     return "'%s'" % value.decode(b"ascii", "surrogateescape").translate(_escape_table)
 
-cpdef str escape_str(value, mapping: dict = None):
-    return "'%s'" % escape_string(str(value), mapping)
+cpdef str escape_str(str value, mapping: dict = None):
+    return "'%s'" % escape_string(value, mapping)
 
 cpdef str escape_None(value, mapping: dict = None):
     return "NULL"
 
-cpdef escape_timedelta(obj: datetime.timedelta, mapping: dict = None):
+cpdef str escape_timedelta(obj: datetime.timedelta, mapping: dict = None):
     seconds = int(obj.seconds) % 60
     minutes = int(obj.seconds // 60) % 60
     hours = int(obj.seconds // 3600) % 24 + int(obj.days) * 24
@@ -102,14 +103,14 @@ cpdef str escape_time(obj, mapping: dict = None):
         fmt = "'{0.hour:02}:{0.minute:02}:{0.second:02}'"
     return fmt.format(obj)
 
-cpdef str escape_datetime(obj: datetime.datetime, mapping: dict = None):
+cpdef str escape_datetime(datetime.datetime obj, mapping: dict = None):
     if obj.microsecond:
         fmt = "'{0.year:04}-{0.month:02}-{0.day:02} {0.hour:02}:{0.minute:02}:{0.second:02}.{0.microsecond:06}'"
     else:
         fmt = "'{0.year:04}-{0.month:02}-{0.day:02} {0.hour:02}:{0.minute:02}:{0.second:02}'"
     return fmt.format(obj)
 
-cpdef str escape_date(obj: datetime.date, mapping: dict = None):
+cpdef str escape_date(datetime.date obj, mapping: dict = None):
     fmt = "'{0.year:04}-{0.month:02}-{0.day:02}'"
     return fmt.format(obj)
 
@@ -130,7 +131,7 @@ DATETIME_RE = re.compile(
     r"(\d{1,4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?"
 )
 
-cpdef convert_datetime(str obj):
+cpdef datetime.datetime convert_datetime(str obj):
     """Returns a DATETIME or TIMESTAMP column value as a datetime object:
 
       >>> convert_datetime('2007-02-25 23:06:20')
@@ -162,7 +163,7 @@ cpdef convert_datetime(str obj):
 
 TIMEDELTA_RE = re.compile(r"(-)?(\d{1,3}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?")
 
-cpdef convert_timedelta(str obj):
+cpdef datetime.timedelta convert_timedelta(str obj):
     """Returns a TIME column as a timedelta object:
 
       >>> convert_timedelta('25:06:17')
@@ -207,7 +208,7 @@ cpdef convert_timedelta(str obj):
 
 TIME_RE = re.compile(r"(\d{1,2}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?")
 
-cpdef convert_time(str obj):
+cpdef datetime.time convert_time(str obj):
     """Returns a TIME column as a time object:
 
       >>> convert_time('15:06:17')
@@ -249,7 +250,7 @@ cpdef convert_time(str obj):
     except ValueError:
         return obj
 
-cpdef convert_date(obj):
+cpdef datetime.date convert_date(obj):
     """Returns a DATE column as a date object:
 
       >>> convert_date('2007-02-26')

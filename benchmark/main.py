@@ -5,9 +5,6 @@ from benchmark.benchmark_insert import benchmark_insert, conn_mysqlclient
 from benchmark.benchmark_select import benchmark_select
 from benchmark.benchmark_update import benchmark_update
 
-
-loop = asyncio.get_event_loop()
-
 if __name__ == "__main__":
     cur = conn_mysqlclient.cursor()
     cur.execute(
