@@ -10,7 +10,7 @@ class Pool(asyncio.AbstractServer):
     """Connection pool, just from aiomysql"""
 
     def __init__(
-            self, minsize: int, maxsize: int, pool_recycle: int, echo: bool = False, **kwargs
+            self, minsize: int, maxsize: int, pool_recycle: int=3600, echo: bool = False, **kwargs
     ):
         if minsize < 0:
             raise ValueError("minsize should be zero or greater")
@@ -199,7 +199,7 @@ class Pool(asyncio.AbstractServer):
 
 
 def create_pool(
-        minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, **kwargs
+        minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = 3600, **kwargs
 ):
     coro = _create_pool(
         minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, **kwargs
@@ -207,7 +207,7 @@ def create_pool(
     return _PoolContextManager(coro)
 
 async def _create_pool(
-        minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = -1, **kwargs
+        minsize: int = 1, maxsize: int = 10, echo=False, pool_recycle: int = 3600, **kwargs
 ):
     pool = Pool(
         minsize=minsize, maxsize=maxsize, echo=echo, pool_recycle=pool_recycle, **kwargs
