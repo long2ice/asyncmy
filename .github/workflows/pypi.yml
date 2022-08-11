@@ -8,20 +8,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: [ "3.7", "3.8", "3.9", "3.10" ]
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v2
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+      - name: Set up QEMU
+        if: runner.os == 'Linux'
+        uses: docker/setup-qemu-action@v1
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install and configure Poetry
-        run: |
-          pip install -U pip poetry
-          poetry config virtualenvs.create false
-      - name: Build dists
-        run: make build
+          platforms: all
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.8.1
+        env:
+          CIBW_ARCHS_LINUX: auto aarch64
+          CIBW_SKIP: cp36-* *-manylinux_i686 *-musllinux_i686 *-win32
+        with:
+          output-dir: dist
       - uses: actions/upload-artifact@v2
         with:
           path: dist/
