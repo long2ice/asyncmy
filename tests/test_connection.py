@@ -3,6 +3,8 @@ import re
 import pytest
 
 from asyncmy.connection import Connection
+from asyncmy.errors import OperationalError
+
 from conftest import connection_kwargs
 
 
@@ -18,6 +20,15 @@ async def test_connect():
     assert connection.get_proto_info() == 10
     assert connection.get_host_info() != "Not Connected"
     await connection.ensure_closed()
+
+
+@pytest.mark.asyncio
+async def test_read_timeout():
+    with pytest.raises(OperationalError):
+        connection = Connection(read_timeout=1, **connection_kwargs)
+        await connection.connect()
+        async with connection.cursor() as cursor:
+            await cursor.execute("DO SLEEP(3)")
 
 
 @pytest.mark.asyncio
