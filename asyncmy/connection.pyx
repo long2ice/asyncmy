@@ -112,7 +112,6 @@ class Connection:
     :param port: MySQL port to use, default is usually OK. (default: 3306)
     :param unix_socket: Use a unix socket rather than TCP/IP.
     :param read_timeout: The timeout for reading from the connection in seconds (default: None - no timeout)
-    :param write_timeout: The timeout for writing to the connection in seconds (default: None - no timeout)
     :param charset: Charset to use.
     :param sql_mode: Default SQL_MODE to use.
     :param read_default_file:
@@ -172,7 +171,6 @@ class Connection:
             max_allowed_packet=16 * 1024 * 1024,
             auth_plugin_map=None,
             read_timeout=None,
-            write_timeout=None,
             binary_prefix=False,
             program_name=None,
             server_public_key=None,
@@ -241,9 +239,6 @@ class Connection:
         if read_timeout is not None and read_timeout <= 0:
             raise ValueError("read_timeout should be > 0")
         self._read_timeout = read_timeout
-        if write_timeout is not None and write_timeout <= 0:
-            raise ValueError("write_timeout should be > 0")
-        self._write_timeout = write_timeout
         self._secure = False
         self._charset = charset or DEFAULT_CHARSET
         self._use_unicode = use_unicode
@@ -607,8 +602,15 @@ class Connection:
 
     async def _read_bytes(self, num_bytes: int):
         try:
-            data = await self._reader.readexactly(num_bytes)
-        except (IOError, OSError) as e:
+            if self._read_timeout:
+                try:
+                    data = await asyncio.wait_for(self._reader.readexactly(num_bytes), self._read_timeout)
+                except asyncio.TimeoutError:
+                    await self.ensure_closed()
+                    raise
+            else:
+                data = await self._reader.readexactly(num_bytes)
+        except (IOError, OSError, asyncio.TimeoutError) as e:
             raise errors.OperationalError(
                 CR_SERVER_LOST,
                 "Lost connection to MySQL server during query (%s)" % (e,),
@@ -1250,7 +1252,6 @@ def connect(user=None,
             max_allowed_packet=16 * 1024 * 1024,
             auth_plugin_map=None,
             read_timeout=None,
-            write_timeout=None,
             binary_prefix=False,
             program_name=None,
             echo=False,
@@ -1280,7 +1281,6 @@ def connect(user=None,
         max_allowed_packet=max_allowed_packet,
         auth_plugin_map=auth_plugin_map,
         read_timeout=read_timeout,
-        write_timeout=write_timeout,
         binary_prefix=binary_prefix,
         program_name=program_name,
         server_public_key=server_public_key,

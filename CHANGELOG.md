@@ -5,6 +5,7 @@
 ### 0.2.6
 
 - Fix raise_mysql_exception (#28)
+- Implement `read_timeout` and remove `write_timeout` parameters (#44)
 
 ### 0.2.5
 
