@@ -39,7 +39,7 @@ uvloop = { version = "*", markers = "sys_platform != 'win32'" }
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core>=1.0.0", "setuptools", "cython"]
+requires = ["poetry-core>=1.0.0, <1.5.0", "setuptools", "cython"]
 
 [tool.black]
 line-length = 100
