@@ -17,17 +17,32 @@ jobs:
           CIBW_SKIP: cp36-*
       - uses: actions/upload-artifact@v3
         with:
+          name: dist
           path: wheelhouse/
-  upload:
+  tarbuild:
     runs-on: ubuntu-latest
     needs:
       - build
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+      - uses: abatilo/actions-poetry@v2
+      - name: Build 
+        run: poetry build
+      - uses: actions/upload-artifact@v3
         with:
-          path: wheelhouse
+          name: tar
+          path: dist/
+  upload:
+    runs-on: ubuntu-latest
+    needs:
+      - tarbuild
+    steps:
+      - uses: actions/download-artifact@v3
+      - name: Copy .tar.gz to dist dir
+        run: cp tar/*.tar.gz dist/
       - uses: pypa/gh-action-pypi-publish@v1.6.4
         with:
           user: __token__
           password: ${{ secrets.pypi_password }}
-          packages_dir: wheelhouse/artifact
+          packages_dir: dist
