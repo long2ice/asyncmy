@@ -17,7 +17,7 @@ jobs:
           CIBW_SKIP: cp36-*
       - uses: actions/upload-artifact@v3
         with:
-          output-dir: dist/
+          path: dist/
   upload:
     runs-on: ubuntu-latest
     needs:
