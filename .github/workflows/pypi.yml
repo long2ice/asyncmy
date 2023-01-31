@@ -30,4 +30,4 @@ jobs:
         with:
           user: __token__
           password: ${{ secrets.pypi_password }}
-          packages_dir: wheelhouse
+          packages_dir: wheelhouse/artifact
