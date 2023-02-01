@@ -4,7 +4,6 @@ import pytest
 
 from asyncmy.connection import Connection
 from asyncmy.errors import OperationalError
-
 from conftest import connection_kwargs
 
 
@@ -35,7 +34,8 @@ async def test_read_timeout():
 async def test_transaction(connection):
     await connection.begin()
     await connection.query(
-        """INSERT INTO test.asyncmy(`decimal`, date, datetime, `float`, string, `tinyint`) VALUES (%s,'%s','%s',%s,'%s',%s)"""
+        """INSERT INTO test.asyncmy(`decimal`, date, datetime, `float`,
+         string, `tinyint`) VALUES (%s,'%s','%s',%s,'%s',%s)"""
         % (
             1,
             "2020-08-08",

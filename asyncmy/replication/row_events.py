@@ -457,7 +457,8 @@ class RowsEvent(BinLogEvent):
 class DeleteRowsEvent(RowsEvent):
     """This event is trigger when a row in the database is removed
 
-    For each row you have a hash with a single key: values which contain the data of the removed line.
+    For each row you have a hash with a single key: values which contain
+    the data of the removed line.
     """
 
     def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
@@ -589,24 +590,27 @@ class TableMapEvent(BinLogEvent):
                 try:
                     column_schema = self.column_schemas[ordinal_pos_loc]
 
-                    # only acknowledge the column definition if the iteration matches with ordinal position of
+                    # only acknowledge the column definition if the iteration matches
+                    # with ordinal position of
                     # the column. this helps in maintaining support for restricted columnar access
                     if i != (column_schema["ORDINAL_POSITION"] - 1):
-                        # raise IndexError to follow the workflow of dropping columns which are not matching the
+                        # raise IndexError to follow the workflow of dropping
+                        # columns which are not matching the
                         # underlying table schema
                         raise IndexError
 
                     ordinal_pos_loc += 1
                 except IndexError:
-                    # this a dirty hack to prevent row events containing columns which have been dropped prior
-                    # to pymysqlreplication start, but replayed from binlog from blowing up the service.
-                    # TODO: this does not address the issue if the column other than the last one is dropped
+                    # this a dirty hack to prevent row events containing columns
+                    # which have been dropped prior
+                    # to pymysqlreplication start, but replayed from binlog
+                    # from blowing up the service.
                     column_schema = {
                         "COLUMN_NAME": "__dropped_col_{i}__".format(i=i),
                         "COLLATION_NAME": None,
                         "CHARACTER_SET_NAME": None,
                         "COLUMN_COMMENT": None,
-                        "COLUMN_TYPE": "BLOB",  # we don't know what it is, so let's not do anything with it.
+                        "COLUMN_TYPE": "BLOB",
                         "COLUMN_KEY": "",
                     }
                 col = Column(column_type, column_schema, self.packet)

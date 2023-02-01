@@ -13,37 +13,39 @@ packages = [
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.7-rc1"
+version = "0.2.7-rc2"
 
 [tool.poetry.dependencies]
 python = "^3.7"
 
-[tool.poetry.dev-dependencies]
-aiomysql = "*"
+[tool.poetry.group.dev.dependencies]
 bandit = "*"
 black = "*"
-cryptography = "*"
 cython = "*"
 flake8 = "*"
 isort = "*"
 mypy = "*"
+rich = "*"
+ruff = "*"
+
+[tool.poetry.group.test.dependencies]
+pytest = "*"
 mysqlclient = "*"
 pymysql = "0.8.1"
-pytest = "*"
-rich = "*"
-pyproject-flake8 = "*"
+aiomysql = "*"
 pytest-asyncio = "*"
 pytest-mock = "*"
 pytest-xdist = "*"
+cryptography = "*"
 uvloop = { version = "*", markers = "sys_platform != 'win32'" }
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core>=1.0.0, <1.5.0", "setuptools", "cython"]
+requires = ["poetry-core", "setuptools", "cython"]
 
 [tool.black]
 line-length = 100
-target-version = ['py36', 'py37', 'py38', 'py39']
+target-version = ['py37', 'py38', 'py39', 'py310']
 
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'
@@ -52,5 +54,5 @@ asyncio_mode = 'auto'
 pretty = true
 ignore_missing_imports = true
 
-[tool.flake8]
-ignore = 'E501,W503,E203'
+[tool.ruff]
+line-length = 100

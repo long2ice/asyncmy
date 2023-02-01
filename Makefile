@@ -5,7 +5,7 @@ MYSQL_PASS ?= "123456"
 up:
 	@poetry update
 
-deps: 
+deps:
 	@poetry install
 
 style: deps
@@ -14,7 +14,7 @@ style: deps
 
 check: deps
 	@black --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
-	@pflake8 $(checkfiles)
+	@ruff $(checkfiles)
 	@bandit -x tests -r $(checkfiles)
 	@mypy $(checkfiles)
 
@@ -24,8 +24,7 @@ test: deps
 clean:
 	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so
 
-build:
-	@pip install cython
+build: clean
 	@poetry build
 
 benchmark: deps

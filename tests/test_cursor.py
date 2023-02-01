@@ -35,7 +35,8 @@ async def test_dict_cursor(connection):
 async def test_insert(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.execute(
-            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, time, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(id,`decimal`, date, datetime, time, 
+            `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 1,
                 1,
@@ -75,7 +76,8 @@ async def test_delete(connection):
 async def test_executemany(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.executemany(
-            """INSERT INTO test.asyncmy(`decimal`, date, datetime, time, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(`decimal`, date, datetime, time, `float`, 
+            string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s)""",
             [
                 (
                     1,
@@ -124,7 +126,8 @@ class EnumValue(str, Enum):
 async def test_insert_enum(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         rows = await cursor.execute(
-            """INSERT INTO test.asyncmy(id, `decimal`, date, datetime, time, `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            """INSERT INTO test.asyncmy(id, `decimal`, date, datetime, time,
+             `float`, string, `tinyint`) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
             (
                 -1,
                 1,
