@@ -282,7 +282,7 @@ cpdef through(x):
 #     so we shouldn't either
 convert_bit = through
 
-cpdef dict encoders = {
+cdef dict encoders = {
     bool: escape_bool,
     int: escape_int,
     float: escape_float,
