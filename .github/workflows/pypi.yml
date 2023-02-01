@@ -11,15 +11,9 @@ jobs:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     steps:
       - uses: actions/checkout@v3
-      - name: Set up QEMU
-        if: runner.os == 'Linux'
-        uses: docker/setup-qemu-action@v2
-        with:
-          platforms: all
       - uses: pypa/cibuildwheel@v2.12.0
         env:
           CIBW_SKIP: cp36-*
-          CIBW_ARCHS_LINUX: auto aarch64 ppc64le s390x
       - uses: actions/upload-artifact@v3
         with:
           path: wheelhouse/*.whl
