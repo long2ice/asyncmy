@@ -1,4 +1,4 @@
-from distutils.command.build_ext import build_ext  # type:ignore
+from distutils.command.build_ext import build_ext
 
 from Cython.Build import cythonize
 

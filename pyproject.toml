@@ -4,7 +4,7 @@ build = "build.py"
 description = "A fast asyncio MySQL driver"
 documentation = "https://github.com/long2ice/asyncmy"
 homepage = "https://github.com/long2ice/asyncmy"
-include = ["CHANGELOG.md", "LICENSE", "README.md"]
+include = ["CHANGELOG.md", "LICENSE", "README.md", "asyncmy/*.so", "asyncmy/*.pyd"]
 keywords = ["driver", "asyncio", "mysql"]
 license = "Apache-2.0"
 name = "asyncmy"
@@ -13,7 +13,7 @@ packages = [
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.7-rc2"
+version = "0.2.7-rc3"
 
 [tool.poetry.dependencies]
 python = "^3.7"

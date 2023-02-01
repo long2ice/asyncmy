@@ -22,7 +22,7 @@ test: deps
 	$(py_warn) MYSQL_PASS=$(MYSQL_PASS) pytest
 
 clean:
-	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so
+	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so && rm -rf asyncmy/*.html
 
 build: clean
 	@poetry build
