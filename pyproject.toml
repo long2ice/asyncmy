@@ -1,10 +1,9 @@
 [tool.poetry]
 authors = ["long2ice <long2ice@gmail.com>"]
-build = "build.py"
 description = "A fast asyncio MySQL driver"
 documentation = "https://github.com/long2ice/asyncmy"
 homepage = "https://github.com/long2ice/asyncmy"
-include = ["CHANGELOG.md", "LICENSE", "README.md", "asyncmy/*.so", "asyncmy/*.pyd"]
+include = ["CHANGELOG.md", "LICENSE", "README.md"]
 keywords = ["driver", "asyncio", "mysql"]
 license = "Apache-2.0"
 name = "asyncmy"
@@ -13,7 +12,7 @@ packages = [
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.7-rc4"
+version = "0.2.7-rc5"
 
 [tool.poetry.dependencies]
 python = "^3.7"
@@ -38,6 +37,10 @@ pytest-mock = "*"
 pytest-xdist = "*"
 cryptography = "*"
 uvloop = { version = "*", markers = "sys_platform != 'win32'" }
+
+[tool.poetry.build]
+generate-setup-file = true
+script = "build.py"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
