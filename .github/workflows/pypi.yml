@@ -14,6 +14,9 @@ jobs:
       - uses: pypa/cibuildwheel@v2.12.0
         env:
           CIBW_SKIP: cp36-*
+          CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""
+          CIBW_REPAIR_WHEEL_COMMAND_WINDOWS: ""
+          CIBW_REPAIR_WHEEL_COMMAND_LINUX: ""
       - uses: actions/upload-artifact@v3
         with:
           path: wheelhouse/*.whl
