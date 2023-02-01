@@ -14,7 +14,7 @@ jobs:
       - uses: pypa/cibuildwheel@v2.12.0
         env:
           CIBW_SKIP: cp36-*
-          CIBW_BEFORE_BUILD: pip3 install cython && cythonize -a -i -3 asyncmy/*.pyx
+          CIBW_BEFORE_BUILD: pip3 install cython && make clean && cythonize -i -3 asyncmy/*.pyx
       - uses: actions/upload-artifact@v3
         with:
           path: wheelhouse/*.whl
