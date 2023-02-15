@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.7
+
+- Fix `No module named 'asyncmy.connection'`.
+
 ### 0.2.6
 
 - Fix raise_mysql_exception (#28)
