@@ -2,6 +2,10 @@
 
 ## 0.2
 
+## 0.2.8
+
+- Fix sudden loss of float precision. (#56)
+
 ### 0.2.7
 
 - Fix `No module named 'asyncmy.connection'`.

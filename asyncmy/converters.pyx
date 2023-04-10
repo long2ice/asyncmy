@@ -49,7 +49,7 @@ cpdef str escape_bool(int value, mapping: dict = None):
 cpdef str escape_int(long long value, mapping: dict = None):
     return str(value)
 
-cpdef str escape_float(float value, mapping: dict = None):
+cpdef str escape_float(double value, mapping: dict = None):
     s = repr(value)
     if s in ("inf", "nan"):
         raise ProgrammingError("%s can not be used with MySQL" % s)
