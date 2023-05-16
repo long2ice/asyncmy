@@ -10,7 +10,7 @@ class Pool(asyncio.AbstractServer):
     """Connection pool, just from aiomysql"""
 
     def __init__(
-            self, minsize: int, maxsize: int, pool_recycle: int=3600, echo: bool = False, **kwargs
+            self, minsize: int, maxsize: int, pool_recycle: int = 3600, echo: bool = False, **kwargs
     ):
         if minsize < 0:
             raise ValueError("minsize should be zero or greater")
@@ -18,7 +18,7 @@ class Pool(asyncio.AbstractServer):
             raise ValueError("maxsize should be not less than minsize")
         self._minsize = minsize
         self._loop = asyncio.get_event_loop()
-        self._conn_kwargs = kwargs
+        self._conn_kwargs = {**kwargs, echo: echo}
         self._acquiring = 0
         self._free: Deque[Connection] = collections.deque(maxlen=maxsize)
         self._cond = asyncio.Condition()

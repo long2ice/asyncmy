@@ -5,6 +5,7 @@
 ## 0.2.8
 
 - Fix sudden loss of float precision. (#56)
+- Fix pool `echo` parameter not apply to create connection. (#62)
 
 ### 0.2.7
 
