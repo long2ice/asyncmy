@@ -28,5 +28,6 @@ jobs:
         run: |
           pip install -U pip poetry
           poetry config virtualenvs.create false
+          pip3 install wheel setuptools pip --upgrade
       - name: Run ci
         run: make ci
