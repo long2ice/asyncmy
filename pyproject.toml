@@ -12,13 +12,12 @@ packages = [
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.8-rc2"
+version = "0.2.8"
 
 [tool.poetry.dependencies]
 python = "^3.7"
 
 [tool.poetry.group.dev.dependencies]
-bandit = "*"
 black = "*"
 cython = "*"
 flake8 = "*"

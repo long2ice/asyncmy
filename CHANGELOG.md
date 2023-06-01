@@ -6,6 +6,7 @@
 
 - Fix sudden loss of float precision. (#56)
 - Fix pool `echo` parameter not apply to create connection. (#62)
+- Fix replication reconnect.
 
 ### 0.2.7
 
