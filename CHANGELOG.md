@@ -1,6 +1,7 @@
 # ChangeLog
 
-## 0.2
+## 0.2.9
+- Added support for SSL context creation via `ssl` parameter using a dictionary containing `mysql_ssl_set` parameters. (#64)
 
 ## 0.2.8
 
