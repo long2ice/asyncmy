@@ -80,8 +80,8 @@ cpdef str escape_bytes_prefixed(bytes value, mapping: dict = None):
 cpdef str escape_bytes(bytes value, mapping: dict = None):
     return "'%s'" % value.decode(b"ascii", "surrogateescape").translate(_escape_table)
 
-cpdef str escape_str(str value, mapping: dict = None):
-    return "'%s'" % escape_string(value, mapping)
+cpdef str escape_str(value, mapping: dict = None):
+    return "'%s'" % escape_string(str(value), mapping)
 
 cpdef str escape_None(value, mapping: dict = None):
     return "NULL"
