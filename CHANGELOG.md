@@ -5,6 +5,7 @@
 ### 0.2.9
 
 - Added support for SSL context creation via `ssl` parameter using a dictionary containing `mysql_ssl_set` parameters. (#64)
+- Fix bug with fallback encoder in the `escape_item()` function. (#65)
 
 ### 0.2.8
 
