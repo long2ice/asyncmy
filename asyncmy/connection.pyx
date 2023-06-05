@@ -128,7 +128,7 @@ class Connection:
     :param init_command: Initial SQL statement to run when connection is established.
     :param connect_timeout: The timeout for connecting to the database in seconds.
         (default: 10, min: 1, max: 31536000)
-    :param ssl: Optional SSL Context to force SSL
+    :param ssl: Optional dict of arguments similar to mysql_ssl_set()'s parameters or SSL Context to force SSL
     :param read_default_group: Group to read from in the configuration file.
     :param autocommit: Autocommit mode. None means use server default. (default: False)
     :param local_infile: Boolean to enable the use of LOAD DATA LOCAL  (default: False)
@@ -217,11 +217,22 @@ class Connection:
             unix_socket = _config("socket", unix_socket)
             port = int(_config("port", port))
             charset = _config("default-character-set", charset)
+            if not ssl:
+                ssl = {}
+            if isinstance(ssl, dict):
+                for key in ["ca", "capath", "cert", "key", "cipher"]:
+                    value = _config("ssl-" + key, ssl.get(key))
+                    if value:
+                        ssl[key] = value
+        self._ssl_context = None
+        if ssl:
+            if not SSL_ENABLED:
+                raise NotImplementedError("SSL module not found")
+            client_flag |= SSL
+            self._ssl_context = self._create_ssl_ctx(ssl)
+
         self._echo = echo
         self._last_usage = self._loop.time()
-        self._ssl_context = ssl
-        if ssl:
-            client_flag |= SSL
 
         self._host = host
         self._port = port
@@ -285,6 +296,39 @@ class Connection:
         self._connected = False
         self._reader: Optional[StreamReader] = None
         self._writer: Optional[StreamWriter] = None
+        
+    def _create_ssl_ctx(self, sslp):
+        if isinstance(sslp, ssl.SSLContext):
+            return sslp
+        ca = sslp.get("ca")
+        capath = sslp.get("capath")
+        hasnoca = ca is None and capath is None
+        ctx = ssl.create_default_context(cafile=ca, capath=capath)
+        ctx.check_hostname = not hasnoca and sslp.get("check_hostname", True)
+        verify_mode_value = sslp.get("verify_mode")
+        if verify_mode_value is None:
+            ctx.verify_mode = ssl.CERT_NONE if hasnoca else ssl.CERT_REQUIRED
+        elif isinstance(verify_mode_value, bool):
+            ctx.verify_mode = ssl.CERT_REQUIRED if verify_mode_value else ssl.CERT_NONE
+        else:
+            if isinstance(verify_mode_value, str):
+                verify_mode_value = verify_mode_value.lower()
+            if verify_mode_value in ("none", "0", "false", "no"):
+                ctx.verify_mode = ssl.CERT_NONE
+            elif verify_mode_value == "optional":
+                ctx.verify_mode = ssl.CERT_OPTIONAL
+            elif verify_mode_value in ("required", "1", "true", "yes"):
+                ctx.verify_mode = ssl.CERT_REQUIRED
+            else:
+                ctx.verify_mode = ssl.CERT_NONE if hasnoca else ssl.CERT_REQUIRED
+        if "cert" in sslp:
+            ctx.load_cert_chain(sslp["cert"], keyfile=sslp.get("key"))
+        if "cipher" in sslp:
+            ctx.set_ciphers(sslp["cipher"])
+        ctx.options |= ssl.OP_NO_SSLv2
+        ctx.options |= ssl.OP_NO_SSLv3
+        return ctx
+
 
     def close(self):
         """Close socket connection"""
