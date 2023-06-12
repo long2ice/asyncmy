@@ -13,7 +13,7 @@ async def test_connect():
     await connection.connect()
     assert connection._connected
     assert re.match(
-        r"\d\.\d\.\d",
+        r"\d+\.\d+\.\d+([^0-9].*)?",
         connection.get_server_info(),
     )
     assert connection.get_proto_info() == 10

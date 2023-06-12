@@ -5,11 +5,11 @@ on:
       - main
   pull_request:
 jobs:
-  ci:
+  ci_mysql:
     runs-on: ubuntu-latest
     services:
       database:
-        image: ${{ matrix.database }}
+        image: mysql:latest
         ports:
           - 3306:3306
         env:
@@ -18,7 +18,31 @@ jobs:
     strategy:
       matrix:
         python-version: [ "3.7", "3.8", "3.9", "3.10" ]
-        database: [ "mysql", "mariadb" ]
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install and configure Poetry
+        run: |
+          pip install -U pip poetry
+          poetry config virtualenvs.create false
+          pip3 install wheel setuptools pip --upgrade
+      - name: Run ci
+        run: make ci
+  ci_mariadb:
+    runs-on: ubuntu-latest
+    services:
+      database:
+        image: mariadb:latest
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: 123456
+        options: --health-cmd="mariadb-admin ping -uroot -p${MYSQL_ROOT_PASSWORD}" --health-interval 10s --health-timeout 5s --health-retries 5
+    strategy:
+      matrix:
+        python-version: [ "3.7", "3.8", "3.9", "3.10" ]
     steps:
       - uses: actions/checkout@v2
       - uses: actions/setup-python@v2
