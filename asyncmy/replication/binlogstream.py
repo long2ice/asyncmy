@@ -12,7 +12,7 @@ from asyncmy.replication.constants import (
     ROTATE_EVENT,
     TABLE_MAP_EVENT,
 )
-from asyncmy.replication.errors import BinLogNotEnabledError, StreamClosedError
+from asyncmy.replication.errors import BinLogNotEnabledError
 from asyncmy.replication.events import (
     BeginLoadQueryEvent,
     BinLogEvent,
@@ -288,7 +288,7 @@ class BinLogStream:
 
         if pkt.is_eof_packet():
             await self.close()
-            raise StreamClosedError("BinLogStream is closed")
+            return
 
         if not pkt.is_ok_packet():
             return
@@ -367,11 +367,8 @@ class BinLogStream:
     async def __anext__(self):
         if not self._connected:
             await self._connect()
-        try:
+        ret = await self._read()
+        while ret is None:
             ret = await self._read()
-            while ret is None:
-                ret = await self._read()
-                continue
-            return ret
-        except StreamClosedError:
-            raise StopAsyncIteration
+            continue
+        return ret

@@ -8,7 +8,3 @@ class BinLogNotEnabledError(Exception):
     """
     raise when binlog not enabled
     """
-
-
-class StreamClosedError(Exception):
-    """raise when stream is closed"""
