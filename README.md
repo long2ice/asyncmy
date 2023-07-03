@@ -67,7 +67,7 @@ Now you can uninstall previously installed tools.
 
 ### Use `connect`
 
-`asyncmy` provides a way to connect to MySQL database with simple factory function `asyncmy.connnect()`. Use this
+`asyncmy` provides a way to connect to MySQL database with simple factory function `asyncmy.connect()`. Use this
 function if you want just one connection to the database, consider connection pool for multiple connections.
 
 ```py
