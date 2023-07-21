@@ -92,6 +92,7 @@ async def run():
         `tinyint`  tinyint
     )"""
         )
+   conn.close()
 
 
 if __name__ == '__main__':
@@ -114,6 +115,7 @@ async def run():
             await cursor.execute("SELECT 1")
             ret = await cursor.fetchone()
             assert ret == (1,)
+    pool.close()
 
 
 if __name__ == '__main__':
