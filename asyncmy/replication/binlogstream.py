@@ -285,6 +285,7 @@ class BinLogStream:
             if code in self.MYSQL_EXPECTED_ERROR_CODES:
                 await self.close()
                 return
+            raise e
 
         if pkt.is_eof_packet():
             await self.close()
