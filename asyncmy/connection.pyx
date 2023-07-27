@@ -152,10 +152,10 @@ class Connection:
             *,
             user=None,  # The first four arguments is based on DB-API 2.0 recommendation.
             password="",
-            host='localhost',
+            host=None,
             database=None,
             unix_socket=None,
-            port=3306,
+            port=0,
             charset="",
             sql_mode=None,
             read_default_file=None,
@@ -234,8 +234,8 @@ class Connection:
         self._echo = echo
         self._last_usage = self._loop.time()
 
-        self._host = host
-        self._port = port
+        self._host = host or "localhost"
+        self._port = port or 3306
         if type(self._port) is not int:
             raise ValueError("port should be of type int")
         self._user = user or DEFAULT_USER
@@ -296,7 +296,7 @@ class Connection:
         self._connected = False
         self._reader: Optional[StreamReader] = None
         self._writer: Optional[StreamWriter] = None
-        
+
     def _create_ssl_ctx(self, sslp):
         if isinstance(sslp, ssl.SSLContext):
             return sslp
@@ -1277,10 +1277,10 @@ class LoadLocalFile:
 
 def connect(user=None,
             password="",
-            host='localhost',
+            host=None,
             database=None,
             unix_socket=None,
-            port=3306,
+            port=0,
             charset="",
             sql_mode=None,
             read_default_file=None,
