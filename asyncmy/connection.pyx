@@ -297,6 +297,8 @@ class Connection:
         self._reader: Optional[StreamReader] = None
         self._writer: Optional[StreamWriter] = None
 
+        self._auth_plugin_name = ""
+
     def _create_ssl_ctx(self, sslp):
         if isinstance(sslp, ssl.SSLContext):
             return sslp
