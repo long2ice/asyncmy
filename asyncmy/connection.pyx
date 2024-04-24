@@ -300,6 +300,8 @@ class Connection:
     def _create_ssl_ctx(self, sslp):
         if isinstance(sslp, ssl.SSLContext):
             return sslp
+        elif not isinstance(sslp, dict):
+            return
         ca = sslp.get("ca")
         capath = sslp.get("capath")
         hasnoca = ca is None and capath is None
