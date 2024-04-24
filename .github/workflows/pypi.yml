@@ -17,7 +17,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.17.0
         env:
-          CIBW_SKIP: "cp36-* *-win32 *-manylinux_i686"
+          CIBW_SKIP: "cp36-* *-win32 *-manylinux_i686 *-musllinux_i686"
       - uses: actions/upload-artifact@v4
         with:
           name: cibw-wheels-${{ matrix.os }}-${{ strategy.job-index }}
