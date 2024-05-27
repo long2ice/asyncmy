@@ -16,7 +16,7 @@ style: deps _style
 
 _check:
 	@black --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
-	@ruff $(checkfiles)
+	@ruff check $(checkfiles)
 	@mypy $(checkfiles)
 
 check: deps _check
