@@ -20,11 +20,11 @@ python = "^3.7"
 [tool.poetry.group.dev.dependencies]
 black = "*"
 cython = "*"
-flake8 = "*"
 isort = "*"
 mypy = "*"
 rich = "*"
 ruff = "*"
+click = "*"
 
 [tool.poetry.group.test.dependencies]
 pytest = "*"
