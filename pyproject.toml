@@ -18,13 +18,16 @@ version = "0.2.10"
 python = "^3.7"
 
 [tool.poetry.group.dev.dependencies]
-black = "*"
 cython = "*"
 isort = "*"
 mypy = "*"
 rich = "*"
 ruff = "*"
+# Remove the follows if migrate black to ruff
+black = "*"
 click = "*"
+pathspec = {version="*", python="^3.8"}
+platformdirs = {version="*", python="^3.8"}
 
 [tool.poetry.group.test.dependencies]
 pytest = "*"
