@@ -24,10 +24,10 @@ mypy = "*"
 rich = "*"
 ruff = "*"
 # Remove the follows if migrate black to ruff
-black = "*"
+black = "<24.4.2"  # black>=24 requires py38+
 click = "*"
-pathspec = {version="*", python="^3.8"}
-platformdirs = {version="*", python="^3.8"}
+pathspec = "*"
+platformdirs = "*"
 
 [tool.poetry.group.test.dependencies]
 pytest = "*"
