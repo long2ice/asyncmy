@@ -12,7 +12,7 @@ packages = [
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.10-rc1"
+version = "0.2.10"
 
 [tool.poetry.dependencies]
 python = "^3.7"
@@ -23,6 +23,7 @@ isort = "*"
 mypy = "*"
 rich = "*"
 ruff = "*"
+execnet = "<2.1.1"  # Remove it when py37 dropped
 # Remove the follows if migrate black to ruff
 black = "<24.4.2"  # black>=24 requires py38+
 click = "*"
