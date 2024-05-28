@@ -12,24 +12,27 @@ packages = [
 ]
 readme = "README.md"
 repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.10-rc1"
+version = "0.2.10"
 
 [tool.poetry.dependencies]
 python = "^3.7"
 
 [tool.poetry.group.dev.dependencies]
-black = "*"
 cython = "*"
-flake8 = "*"
 isort = "*"
 mypy = "*"
 rich = "*"
 ruff = "*"
+# Remove the follows if migrate black to ruff
+black = "*"
+click = "*"
+pathspec = {version="*", python="^3.8"}
+platformdirs = {version="*", python="^3.8"}
 
 [tool.poetry.group.test.dependencies]
 pytest = "*"
 mysqlclient = "*"
-pymysql = "0.8.1"
+pymysql = ">=0.8.1"
 aiomysql = "*"
 pytest-asyncio = "*"
 pytest-mock = "*"

@@ -8,17 +8,23 @@ up:
 deps:
 	@poetry install
 
-style: deps
+_style:
 	@isort -src $(checkfiles)
 	@black $(checkfiles)
 
-check: deps
+style: deps _style
+
+_check:
 	@black --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
-	@ruff $(checkfiles)
+	@ruff check $(checkfiles)
 	@mypy $(checkfiles)
 
-test: deps
+check: deps _check
+
+_test:
 	$(py_warn) MYSQL_PASS=$(MYSQL_PASS) pytest
+
+test: deps _test
 
 clean:
 	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so && rm -rf asyncmy/*.html
@@ -29,4 +35,4 @@ build: clean
 benchmark: deps
 	@python benchmark/main.py
 
-ci: check test
+ci: deps _check _test
