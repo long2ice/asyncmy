@@ -5,6 +5,7 @@
 ### 0.2.10
 
 - Fix ssl context pass bool.
+- Fix missing `*.whl` for Python 3.12 (#94)
 
 ### 0.2.9
 
