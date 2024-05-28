@@ -262,7 +262,7 @@ def bit_count(bitmap: list):
     n = 0
     for i in range(0, len(bitmap)):
         bit = bitmap[i]
-        if type(bit) is str:
+        if isinstance(bit, str):
             bit = ord(bit)
         n += BIT_COUNT_IN_BYTE[bit]
     return n
@@ -270,6 +270,6 @@ def bit_count(bitmap: list):
 
 def bit_get(bitmap: list, position: int):
     bit = bitmap[int(position / 8)]
-    if type(bit) is str:
+    if isinstance(bit, str):
         bit = ord(bit)
     return bit & (1 << (position & 7))
