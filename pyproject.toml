@@ -15,7 +15,7 @@ repository = "https://github.com/long2ice/asyncmy.git"
 version = "0.2.10"
 
 [tool.poetry.dependencies]
-python = "^3.7"
+python = "^3.8"
 
 [tool.poetry.group.dev.dependencies]
 cython = "*"
@@ -23,9 +23,8 @@ isort = "*"
 mypy = "*"
 rich = "*"
 ruff = "*"
-execnet = "<2.1.1"  # Remove it when py37 dropped
 # Remove the follows if migrate black to ruff
-black = "<24.4.2"  # black>=24 requires py38+
+black = "*"
 click = "*"
 pathspec = "*"
 platformdirs = "*"
@@ -51,7 +50,7 @@ requires = ["poetry-core", "setuptools", "cython"]
 
 [tool.black]
 line-length = 100
-target-version = ['py37', 'py38', 'py39', 'py310']
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
 
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'
