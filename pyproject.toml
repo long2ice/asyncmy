@@ -34,7 +34,9 @@ pytest = "*"
 mysqlclient = "*"
 pymysql = ">=0.8.1"
 aiomysql = "*"
-pytest-asyncio = "*"
+# Breaking change in 0.23.*
+# https://github.com/pytest-dev/pytest-asyncio/issues/706
+pytest-asyncio = "<0.23"
 pytest-mock = "*"
 pytest-xdist = "*"
 cryptography = "*"
