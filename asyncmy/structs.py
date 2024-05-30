@@ -1,7 +1,7 @@
 import struct
 
 h = struct.Struct("<h")
-I = struct.Struct("<I")  # noqa
+I = struct.Struct("<I")  # noqa: E741
 H = struct.Struct("<H")
 Q = struct.Struct("<Q")
 i = struct.Struct("<i")

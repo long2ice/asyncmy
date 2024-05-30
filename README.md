@@ -71,30 +71,33 @@ Now you can uninstall previously installed tools.
 function if you want just one connection to the database, consider connection pool for multiple connections.
 
 ```py
+import asyncio
+import os
+
 from asyncmy import connect
 from asyncmy.cursors import DictCursor
-import asyncio
 
 
 async def run():
-    conn = await connect()
+    conn = await connect(user=os.getenv("DB_USER"), password=os.getenv("DB_PASSWORD", ""))
     async with conn.cursor(cursor=DictCursor) as cursor:
-        await cursor.execute("create database if not exists test")
-        await cursor.execute(
-            """CREATE TABLE if not exists test.asyncmy
-    (
-        `id`       int primary key auto_increment,
-        `decimal`  decimal(10, 2),
-        `date`     date,
-        `datetime` datetime,
-        `float`    float,
-        `string`   varchar(200),
-        `tinyint`  tinyint
-    )"""
+        await cursor.execute("CREATE DATABASE IF NOT EXISTS test")
+        await cursor.execute("""
+            """
+CREATE TABLE IF NOT EXISTS test.`asyncmy` (
+    `id`       int primary key AUTO_INCREMENT,
+    `decimal`  decimal(10, 2),
+    `date`     date,
+    `datetime` datetime,
+    `float`    float,
+    `string`   varchar(200),
+    `tinyint`  tinyint
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+            """.strip()
         )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(run())
 ```
 
