@@ -750,9 +750,10 @@ class Connection:
         if self._user is None:
             raise ValueError("Did not specify a username")
 
+        charset_id = charset_by_name(self._charset).id
         if self._ssl_context:
             # capablities, max packet, charset
-            data = IIB.pack(self._client_flag, 16777216, 33)
+            data = IIB.pack(self._client_flag, MAX_PACKET_LEN, charset_id)
             data += b'\x00' * (32 - len(data))
 
             self.write_packet(data)
@@ -776,7 +777,6 @@ class Connection:
                 sock=raw_sock, ssl=self._ssl_context,
                 server_hostname=self._host,
             )
-        charset_id = charset_by_name(self._charset).id
         if isinstance(self._user, str):
             self._user = self._user.encode(self._encoding)
 
