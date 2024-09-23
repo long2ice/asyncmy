@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS test.`asyncmy` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
             """.strip()
         )
+    await conn.ensure_closed()
 
 
 if __name__ == "__main__":
@@ -117,7 +118,8 @@ async def run():
             await cursor.execute("SELECT 1")
             ret = await cursor.fetchone()
             assert ret == (1,)
-
+    pool.close()
+    await pool.wait_closed()
 
 if __name__ == '__main__':
     asyncio.run(run())
@@ -149,6 +151,8 @@ async def run():
     )
     async for event in stream:
         print(event)
+    await conn.ensure_closed()
+    await ctl_conn.ensure_closed()
 
 
 if __name__ == '__main__':
