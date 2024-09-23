@@ -131,7 +131,7 @@ DATETIME_RE = re.compile(
     r"(\d{1,4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?"
 )
 
-cpdef datetime.datetime convert_datetime(str obj):
+cpdef object convert_datetime(str obj):
     """Returns a DATETIME or TIMESTAMP column value as a datetime object:
 
       >>> convert_datetime('2007-02-25 23:06:20')
@@ -139,12 +139,12 @@ cpdef datetime.datetime convert_datetime(str obj):
       >>> convert_datetime('2007-02-25T23:06:20')
       datetime.datetime(2007, 2, 25, 23, 6, 20)
 
-    Illegal values are returned as None:
+    Illegal values are returned as str:
 
-      >>> convert_datetime('2007-02-31T23:06:20') is None
-      True
-      >>> convert_datetime('0000-00-00 00:00:00') is None
-      True
+      >>> convert_datetime('2007-02-31T23:06:20')
+      '2007-02-31T23:06:20'
+      >>> convert_datetime('0000-00-00 00:00:00')
+      '0000-00-00 00:00:00'
 
     """
     if isinstance(obj, (bytes, bytearray)):
@@ -163,7 +163,7 @@ cpdef datetime.datetime convert_datetime(str obj):
 
 TIMEDELTA_RE = re.compile(r"(-)?(\d{1,3}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?")
 
-cpdef datetime.timedelta convert_timedelta(str obj):
+cpdef object convert_timedelta(str obj):
     """Returns a TIME column as a timedelta object:
 
       >>> convert_timedelta('25:06:17')
@@ -171,10 +171,10 @@ cpdef datetime.timedelta convert_timedelta(str obj):
       >>> convert_timedelta('-25:06:17')
       datetime.timedelta(-2, 83177)
 
-    Illegal values are returned as None:
+    Illegal values are returned as str:
 
-      >>> convert_timedelta('random crap') is None
-      True
+      >>> convert_timedelta('random crap')
+      'random crap'
 
     Note that MySQL always returns TIME columns as (+|-)HH:MM:SS, but
     can accept values as (+|-)DD HH:MM:SS. The latter format will not
@@ -208,18 +208,18 @@ cpdef datetime.timedelta convert_timedelta(str obj):
 
 TIME_RE = re.compile(r"(\d{1,2}):(\d{1,2}):(\d{1,2})(?:.(\d{1,6}))?")
 
-cpdef datetime.time convert_time(str obj):
+cpdef object convert_time(str obj):
     """Returns a TIME column as a time object:
 
       >>> convert_time('15:06:17')
       datetime.time(15, 6, 17)
 
-    Illegal values are returned as None:
+    Illegal values are returned as str:
 
-      >>> convert_time('-25:06:17') is None
-      True
-      >>> convert_time('random crap') is None
-      True
+      >>> convert_time('-25:06:17')
+      '-25:06:17'
+      >>> convert_time('random crap')
+      'random crap'
 
     Note that MySQL always returns TIME columns as (+|-)HH:MM:SS, but
     can accept values as (+|-)DD HH:MM:SS. The latter format will not
@@ -250,18 +250,18 @@ cpdef datetime.time convert_time(str obj):
     except ValueError:
         return obj
 
-cpdef datetime.date convert_date(obj):
+cpdef object convert_date(obj):
     """Returns a DATE column as a date object:
 
       >>> convert_date('2007-02-26')
       datetime.date(2007, 2, 26)
 
-    Illegal values are returned as None:
+    Illegal values are returned as str:
 
-      >>> convert_date('2007-02-31') is None
-      True
-      >>> convert_date('0000-00-00') is None
-      True
+      >>> convert_date('2007-02-31')
+      '2007-02-31'
+      >>> convert_date('0000-00-00')
+      '0000-00-00'
 
     """
     if isinstance(obj, (bytes, bytearray)):
