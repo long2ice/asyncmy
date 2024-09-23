@@ -1,6 +1,6 @@
 import datetime
 
-from asyncmy.converters import escape_item, escape_str
+from asyncmy.converters import convert_datetime, escape_item, escape_str
 
 
 class CustomDate(datetime.date):
@@ -20,3 +20,11 @@ def test_escape_str():
     # so it should accept values that are not strings as well.
     assert escape_str(datetime.date(2023, 6, 2)) == "'2023-06-02'"
     assert escape_str(CustomDate(2023, 6, 2)) == "'2023-06-02'"
+
+
+def test_convert_datetime():
+    assert convert_datetime("2023-06-02T23:06:20") == datetime.datetime(2023, 6, 2, 23, 6, 20)
+    assert convert_datetime("2023-06-02 23:06:20") == datetime.datetime(2023, 6, 2, 23, 6, 20)
+
+    # invalid datetime should be returned as str
+    assert convert_datetime("0000-00-00 00:00:00") == "0000-00-00 00:00:00"
