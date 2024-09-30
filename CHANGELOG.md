@@ -6,6 +6,7 @@
 
 - Fix ssl context pass bool.
 - Fix missing `*.whl` for Python 3.12 (#94)
+- Fix SSL handshake error with MySQL server v8.0.34+. (#80)
 
 ### 0.2.9
 
