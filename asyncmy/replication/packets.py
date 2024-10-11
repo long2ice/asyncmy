@@ -251,7 +251,7 @@ class BinLogPacket:
         length = 0
         bits_read = 0
         while byte & 0x80 != 0:
-            byte = struct.pack("!B", self.read(1))
+            byte = struct.unpack("!B", self.read(1))[0]
             length = length | ((byte & 0x7F) << bits_read)
             bits_read = bits_read + 7
         return self.read(length)
