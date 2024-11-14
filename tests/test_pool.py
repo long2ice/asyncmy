@@ -1,4 +1,5 @@
 import asyncio
+
 import pytest
 
 from asyncmy.connection import Connection
@@ -41,6 +42,7 @@ async def test_cancel_execute(pool, event_loop):
                 await cursor.execute(f"SELECT {index}")
                 ret = await cursor.fetchone()
                 assert ret == (index,)
+
     task = event_loop.create_task(run(1))
     await asyncio.sleep(0)
     task.cancel()
