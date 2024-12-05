@@ -1099,10 +1099,9 @@ cdef class MySQLResult:
             self.field_count = first_packet.read_length_encoded_integer()
             await self._get_descriptions()
 
-            # Apparently, MySQLdb picks this number because it's the maximum
-            # value of a 64bit unsigned integer. Since we're emulating MySQLdb,
-            # we set it to this instead of None, which would be preferred.
-            self.affected_rows = 18446744073709551615
+            # MySQLdb used 18446744073709551615 to indicate an undefined state.
+            # We now use -1 for the same purpose to avoid overflow issues.
+            self.affected_rows = -1
 
     def _read_ok_packet(self, first_packet):
         ok_packet = OKPacketWrapper(first_packet)
