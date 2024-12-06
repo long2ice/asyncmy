@@ -354,7 +354,7 @@ class Connection:
         return self._last_usage
 
     async def ensure_closed(self):
-        """Close connection without QUIT message."""
+        """Send QUIT message and close connection."""
         if self._connected:
             send_data = i.pack(1) + B.pack(COM_QUIT)
             self._write_bytes(send_data)
