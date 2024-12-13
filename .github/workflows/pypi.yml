@@ -33,6 +33,7 @@ jobs:
         run: poetry build
       - uses: actions/upload-artifact@v4
         with:
+          name: cibw-sdist
           path: dist/*.tar.gz
   upload:
     runs-on: ubuntu-latest
@@ -40,9 +41,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: artifact
+          pattern: cibw-*
           path: dist
-      - uses: pypa/gh-action-pypi-publish@v1.6.4
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
           password: ${{ secrets.pypi_password }}
