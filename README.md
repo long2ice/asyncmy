@@ -163,7 +163,7 @@ if __name__ == '__main__':
 
 > asyncmy is build on top of these awesome projects.
 
-- [pymysql](https://github/pymysql/PyMySQL), a pure python MySQL client.
+- [pymysql](https://github.com/pymysql/PyMySQL), a pure python MySQL client.
 - [aiomysql](https://github.com/aio-libs/aiomysql), a library for accessing a MySQL database from the asyncio.
 - [python-mysql-replication](https://github.com/noplay/python-mysql-replication), pure Python Implementation of MySQL
   replication protocol build on top of PyMYSQL.
