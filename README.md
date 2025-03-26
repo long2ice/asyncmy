@@ -4,6 +4,7 @@
 [![image](https://img.shields.io/github/license/long2ice/asyncmy)](https://github.com/long2ice/asyncmy)
 [![pypi](https://github.com/long2ice/asyncmy/actions/workflows/pypi.yml/badge.svg)](https://github.com/long2ice/asyncmy/actions/workflows/pypi.yml)
 [![ci](https://github.com/long2ice/asyncmy/actions/workflows/ci.yml/badge.svg)](https://github.com/long2ice/asyncmy/actions/workflows/ci.yml)
+[![libs.tech recommends](https://libs.tech/project/336724491/badge.svg)](https://libs.tech/project/336724491/asyncmy)
 
 ## Introduction
 
