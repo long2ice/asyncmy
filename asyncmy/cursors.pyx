@@ -11,7 +11,7 @@ from . import errors
 RE_INSERT_VALUES = re.compile(
     r"\s*((?:INSERT|REPLACE)\b.+\bVALUES?\s*)"
     + r"(\(\s*(?:%s|%\(.+\)s)\s*(?:,\s*(?:%s|%\(.+\)s)\s*)*\))"
-    + r"(\s*(?:ON DUPLICATE.*)?);?\s*\Z",
+    + r"(\s*(?:(?:AS|ON DUPLICATE).*)?);?\s*\Z",
     re.IGNORECASE | re.DOTALL,
 )
 logger = logging.getLogger(__package__)
