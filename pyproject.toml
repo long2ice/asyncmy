@@ -39,7 +39,10 @@ aiomysql = "*"
 pytest-asyncio = "^0.21.2"
 pytest-mock = "*"
 pytest-xdist = "*"
-cryptography = "*"
+cryptography = [
+    { version = "^42.0.0", python = "<3.13" },
+    { version = "^44.0.0", python = ">=3.13" }
+]
 uvloop = { version = ">=0.21", markers = "sys_platform != 'win32'" }
 
 [tool.poetry.build]
