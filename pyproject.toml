@@ -40,7 +40,7 @@ pytest-asyncio = "^0.21.2"
 pytest-mock = "*"
 pytest-xdist = "*"
 cryptography = "*"
-uvloop = { version = "*", markers = "sys_platform != 'win32'" }
+uvloop = { version = ">=0.21", markers = "sys_platform != 'win32'" }
 
 [tool.poetry.build]
 generate-setup-file = true
