@@ -52,7 +52,7 @@ requires = ["poetry-core", "setuptools", "cython"]
 
 [tool.black]
 line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312, 'py313']
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312', 'py313']
 
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'
