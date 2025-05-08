@@ -17,7 +17,7 @@ jobs:
         options: --health-cmd="mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 5
     strategy:
       matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
     steps:
       - uses: actions/cache@v4
         with:
@@ -48,7 +48,7 @@ jobs:
         options: --health-cmd="mariadb-admin ping -uroot -p${MYSQL_ROOT_PASSWORD}" --health-interval 10s --health-timeout 5s --health-retries 5
     strategy:
       matrix:
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12", "3.13" ]
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
     steps:
       - uses: actions/cache@v4
         with:
