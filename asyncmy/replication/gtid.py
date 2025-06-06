@@ -1,8 +1,8 @@
+from __future__ import annotations
 import binascii
 import re
 import struct
 from io import BytesIO
-from typing import Set, Union
 
 
 class Gtid:
@@ -30,7 +30,7 @@ class Gtid:
     @staticmethod
     def parse(gtid: str):
         m = re.search(
-            "^([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})" "((?::[0-9-]+)+)$",
+            "^([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})((?::[0-9-]+)+)$",
             gtid,
         )
         if not m:
@@ -118,7 +118,7 @@ class Gtid:
         """Include the transactions of this gtid. Raise if the
         attempted merge has different SID"""
         if self.sid != other.sid:
-            raise Exception("Attempt to merge different SID" "%s != %s" % (self.sid, other.sid))
+            raise Exception("Attempt to merge different SID%s != %s" % (self.sid, other.sid))
 
         result = Gtid(str(self))
 
@@ -232,7 +232,7 @@ class Gtid:
 
 
 class GtidSet:
-    def __init__(self, gtid_set: Set[Gtid]):
+    def __init__(self, gtid_set: set[Gtid]):
         self._gtid_set = gtid_set
 
     def merge_gtid(self, gtid: Gtid):
@@ -246,14 +246,14 @@ class GtidSet:
             new_gtid_set.add(gtid)
         self._gtid_set = new_gtid_set
 
-    def __contains__(self, other: Union[Gtid, "GtidSet"]):
+    def __contains__(self, other: Gtid | GtidSet):
         if isinstance(other, GtidSet):
             return all(other_gtid in self._gtid_set for other_gtid in other._gtid_set)
         if isinstance(other, Gtid):
             return any(other in x for x in self._gtid_set)
         raise NotImplementedError
 
-    def __add__(self, other: Union[Gtid, "GtidSet"]):
+    def __add__(self, other: Gtid | GtidSet):
         if isinstance(other, Gtid):
             new = GtidSet(self._gtid_set)
             new.merge_gtid(other)
@@ -289,5 +289,5 @@ class GtidSet:
         (n_sid,) = struct.unpack("<Q", payload.read(8))
         return cls(set(Gtid.decode(payload) for _ in range(0, n_sid)))
 
-    def __eq__(self, other: "GtidSet"):  # type: ignore[override]
+    def __eq__(self, other: GtidSet):  # type: ignore[override]
         return self._gtid_set == other._gtid_set

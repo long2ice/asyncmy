@@ -1,5 +1,6 @@
+from __future__ import annotations
 import struct
-from typing import Any, Dict, List, Optional, Set, Type, Union
+from typing import Any
 
 from asyncmy import Connection
 from asyncmy.constants.COMMAND import COM_BINLOG_DUMP, COM_BINLOG_DUMP_GTID, COM_REGISTER_SLAVE
@@ -37,7 +38,7 @@ from asyncmy.replication.row_events import (
 
 
 class ReportSlave:
-    def __init__(self, value: Union[str, tuple, dict]):
+    def __init__(self, value: str | tuple | dict):
         self._hostname = ""
         self._username = ""
         self._password = ""  # nosec: B105
@@ -101,22 +102,22 @@ class BinLogStream:
         connection: Connection,
         ctl_connection: Connection,
         server_id: int,
-        slave_uuid: Optional[str] = None,
-        slave_heartbeat: Optional[int] = None,
-        report_slave: Optional[Union[str, tuple, dict]] = None,
-        master_log_file: Optional[str] = None,
-        master_log_position: Optional[int] = None,
-        master_auto_position: Optional[Set[Gtid]] = None,
+        slave_uuid: str | None = None,
+        slave_heartbeat: int | None = None,
+        report_slave: str | tuple | dict | None = None,
+        master_log_file: str | None = None,
+        master_log_position: int | None = None,
+        master_auto_position: set[Gtid] | None = None,
         resume_stream: bool = False,
         blocking: bool = False,
-        skip_to_timestamp: Optional[int] = None,
-        only_events: Optional[List[Type[BinLogEvent]]] = None,
-        ignored_events: Optional[List[Type[BinLogEvent]]] = None,
+        skip_to_timestamp: int | None = None,
+        only_events: list[type[BinLogEvent]] | None = None,
+        ignored_events: list[type[BinLogEvent]] | None = None,
         filter_non_implemented_events: bool = True,
-        only_tables: Optional[List[str]] = None,
-        ignored_tables: Optional[List[str]] = None,
-        only_schemas: Optional[List[str]] = None,
-        ignored_schemas: Optional[List[str]] = None,
+        only_tables: list[str] | None = None,
+        ignored_tables: list[str] | None = None,
+        only_schemas: list[str] | None = None,
+        ignored_schemas: list[str] | None = None,
         freeze_schema: bool = False,
     ):
         self._freeze_schema = freeze_schema
@@ -149,12 +150,12 @@ class BinLogStream:
             RotateEvent,
             *self._allowed_events,
         ]
-        self._table_map: Dict[str, Any] = {}
+        self._table_map: dict[str, Any] = {}
 
     @staticmethod
     def _allowed_event_list(
-        only_events: Optional[List[Type[BinLogEvent]]],
-        ignored_events: Optional[List[Type[BinLogEvent]]],
+        only_events: list[type[BinLogEvent]] | None,
+        ignored_events: list[type[BinLogEvent]] | None,
         filter_non_implemented_events: bool,
     ):
         if only_events is not None:

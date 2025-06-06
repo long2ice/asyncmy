@@ -1,33 +1,30 @@
-[tool.poetry]
-authors = ["long2ice <long2ice@gmail.com>"]
+[project]
+authors = [{ name = "long2ice", email = "long2ice@gmail.com" }]
 description = "A fast asyncio MySQL driver"
-documentation = "https://github.com/long2ice/asyncmy"
-homepage = "https://github.com/long2ice/asyncmy"
-include = ["CHANGELOG.md", "LICENSE", "README.md"]
 keywords = ["driver", "asyncio", "mysql"]
 license = "Apache-2.0"
 name = "asyncmy"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+version = "0.2.10"
+
+[project.urls]
+documentation = "https://github.com/long2ice/asyncmy"
+homepage = "https://github.com/long2ice/asyncmy"
+repository = "https://github.com/long2ice/asyncmy.git"
+
+[tool.poetry]
+include = ["CHANGELOG.md", "LICENSE", "README.md"]
 packages = [
     { include = "asyncmy" },
 ]
-readme = "README.md"
-repository = "https://github.com/long2ice/asyncmy.git"
-version = "0.2.10"
-
-[tool.poetry.dependencies]
-python = "^3.8"
 
 [tool.poetry.group.dev.dependencies]
 cython = "*"
-isort = "*"
 mypy = "*"
 rich = "*"
 ruff = "*"
-# Remove the follows if migrate black to ruff
-black = "*"
-click = "*"
-pathspec = "*"
-platformdirs = "*"
 
 [tool.poetry.group.test.dependencies]
 pytest = "*"
@@ -50,16 +47,22 @@ script = "build.py"
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core", "setuptools", "cython"]
 
-[tool.black]
-line-length = 100
-target-version = ['py38', 'py39', 'py310', 'py311', 'py312, 'py313']
-
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'
 
 [tool.mypy]
 pretty = true
 ignore_missing_imports = true
+warn_unused_ignores = true
+# TODO: Uncomment next line after type hints improved
+#check_untyped_defs = true
 
 [tool.ruff]
 line-length = 100
+[tool.ruff.lint]
+extend-select = [
+    "FA",     # https://docs.astral.sh/ruff/rules/#flake8-future-annotations-fa
+    "UP",     # https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "RUF100", # https://docs.astral.sh/ruff/rules/#ruff-specific-rules-ruf
+]
+ignore = ["UP031", "UP032"] # https://docs.astral.sh/ruff/rules/printf-string-formatting/
