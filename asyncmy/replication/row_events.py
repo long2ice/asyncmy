@@ -45,9 +45,7 @@ from .utils import byte2int
 
 class RowsEvent(BinLogEvent):
     def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
-        super(RowsEvent, self).__init__(
-            from_packet, event_size, table_map, ctl_connection, **kwargs
-        )
+        super().__init__(from_packet, event_size, table_map, ctl_connection, **kwargs)
         self._rows = None
         self._only_tables = kwargs["only_tables"]
         self._ignored_tables = kwargs["ignored_tables"]
@@ -462,9 +460,7 @@ class DeleteRowsEvent(RowsEvent):
     """
 
     def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
-        super(DeleteRowsEvent, self).__init__(
-            from_packet, event_size, table_map, ctl_connection, **kwargs
-        )
+        super().__init__(from_packet, event_size, table_map, ctl_connection, **kwargs)
         if self._processed:
             self.columns_present_bitmap = self.packet.read((self.number_of_columns + 7) / 8)
 
@@ -479,9 +475,7 @@ class WriteRowsEvent(RowsEvent):
     """
 
     def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
-        super(WriteRowsEvent, self).__init__(
-            from_packet, event_size, table_map, ctl_connection, **kwargs
-        )
+        super().__init__(from_packet, event_size, table_map, ctl_connection, **kwargs)
         if self._processed:
             self.columns_present_bitmap = self.packet.read((self.number_of_columns + 7) / 8)
 
@@ -501,9 +495,7 @@ class UpdateRowsEvent(RowsEvent):
     """
 
     def __init__(self, from_packet, event_size, table_map, ctl_connection, **kwargs):
-        super(UpdateRowsEvent, self).__init__(
-            from_packet, event_size, table_map, ctl_connection, **kwargs
-        )
+        super().__init__(from_packet, event_size, table_map, ctl_connection, **kwargs)
         if self._processed:
             # Body
             self.columns_present_bitmap = self.packet.read((self.number_of_columns + 7) / 8)
@@ -525,9 +517,7 @@ class TableMapEvent(BinLogEvent):
     """
 
     def __init__(self, from_packet, event_size, table_map, connection, **kwargs):
-        super(TableMapEvent, self).__init__(
-            from_packet, event_size, table_map, connection, **kwargs
-        )
+        super().__init__(from_packet, event_size, table_map, connection, **kwargs)
         self._only_tables = kwargs["only_tables"]
         self._ignored_tables = kwargs["ignored_tables"]
         self._only_schemas = kwargs["only_schemas"]
@@ -606,7 +596,7 @@ class TableMapEvent(BinLogEvent):
                     # to pymysqlreplication start, but replayed from binlog
                     # from blowing up the service.
                     column_schema = {
-                        "COLUMN_NAME": "__dropped_col_{i}__".format(i=i),
+                        "COLUMN_NAME": f"__dropped_col_{i}__",
                         "COLLATION_NAME": None,
                         "CHARACTER_SET_NAME": None,
                         "COLUMN_COMMENT": None,

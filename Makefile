@@ -6,16 +6,16 @@ up:
 	@poetry update
 
 deps:
-	@poetry install
+	@poetry install --all-groups
 
 _style:
-	@isort -src $(checkfiles)
-	@black $(checkfiles)
+	@ruff format $(checkfiles)
+	@ruff check --fix $(checkfiles)
 
 style: deps _style
 
 _check:
-	@black --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
+	@ruff format --check $(checkfiles) || (echo "Please run 'make style' to auto-fix style issues" && false)
 	@ruff check $(checkfiles)
 	@mypy $(checkfiles)
 

@@ -1,5 +1,7 @@
+from __future__ import annotations
 from collections.abc import Coroutine
-from typing import Any, Iterator
+from typing import Any
+from collections.abc import Iterator
 
 
 class _ContextManager(Coroutine):
