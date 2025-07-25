@@ -2,6 +2,10 @@
 
 ## 0.2
 
+### 0.2.11
+
+- Fix `'Connection' object has no attribute '_auth_plugin_name'` (#86)
+
 ### 0.2.10
 
 - Fix ssl context pass bool.
