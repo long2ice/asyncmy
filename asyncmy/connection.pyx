@@ -51,8 +51,10 @@ try:
 
     DEFAULT_USER = getpass.getuser()
     del getpass
-except (ImportError, KeyError):
-    # KeyError occurs when there's no entry in OS database for a current user.
+except (ImportError, KeyError, OSError):
+    # When there's no entry in OS database for a current user:
+    # KeyError is raised in Python 3.12 and below.
+    # OSError is raised in Python 3.13+
     DEFAULT_USER = None
 
 cdef set TEXT_TYPES = {
