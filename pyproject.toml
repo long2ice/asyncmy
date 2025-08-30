@@ -20,32 +20,35 @@ packages = [
     { include = "asyncmy" },
 ]
 
-[tool.poetry.group.dev.dependencies]
-cython = "*"
-mypy = "*"
-rich = "*"
-ruff = "*"
+[dependency-groups]
+dev = [
+    "cython",
+    "mypy",
+    "rich",
+    "ruff",
+]
+test = [
+    "pytest",
+    "mysqlclient",
+    "pymysql >=0.8.1",
+    "aiomysql",
+    # Breaking change in 0.23.*
+    # https://github.com/pytest-dev/pytest-asyncio/issues/706
+    "pytest-asyncio >=0.21.2,<0.22",
+    "pytest-mock",
+    "pytest-xdist",
+    "cryptography",
+    "uvloop; sys_platform != 'win32' and implementation_name == 'cpython'",
+]
 
-[tool.poetry.group.test.dependencies]
-pytest = "*"
-mysqlclient = "*"
-pymysql = ">=0.8.1"
-aiomysql = "*"
-# Breaking change in 0.23.*
-# https://github.com/pytest-dev/pytest-asyncio/issues/706
-pytest-asyncio = "^0.21.2"
-pytest-mock = "*"
-pytest-xdist = "*"
-cryptography = "*"
-uvloop = { version = "*", markers = "sys_platform != 'win32'" }
-
-[tool.poetry.build]
+[tool.pdm.build]
 generate-setup-file = true
 script = "build.py"
+include = ["CHANGELOG.md", "LICENSE", "README.md"]
 
 [build-system]
-build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core", "setuptools", "cython"]
+build-backend = "pdm.backend"
+requires = ["pdm-backend", "setuptools", "cython"]
 
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'
