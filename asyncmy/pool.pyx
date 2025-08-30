@@ -103,6 +103,11 @@ class Pool(asyncio.AbstractServer):
 
         self._closed = True
 
+    async def aclose(self):
+        """Close pool and wait for closing all pool's connections."""
+        self.close()
+        await self.wait_closed()
+
     def acquire(self):
         """Acquire free connection from the pool."""
         coro = self._acquire()
@@ -194,8 +199,7 @@ class Pool(asyncio.AbstractServer):
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        self.close()
-        await self.wait_closed()
+        await self.aclosed()
 
 
 def create_pool(
