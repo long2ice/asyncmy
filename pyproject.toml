@@ -42,8 +42,8 @@ test = [
 ]
 
 [tool.pdm.build]
-generate-setup-file = true
-script = "build.py"
+run-setuptools = true
+setup-script = "build.py"
 include = ["CHANGELOG.md", "LICENSE", "README.md"]
 
 [build-system]
