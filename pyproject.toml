@@ -14,12 +14,6 @@ documentation = "https://github.com/long2ice/asyncmy"
 homepage = "https://github.com/long2ice/asyncmy"
 repository = "https://github.com/long2ice/asyncmy.git"
 
-[tool.poetry]
-include = ["CHANGELOG.md", "LICENSE", "README.md"]
-packages = [
-    { include = "asyncmy" },
-]
-
 [dependency-groups]
 dev = [
     "cython",

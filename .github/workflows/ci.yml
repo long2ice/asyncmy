@@ -28,10 +28,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: set Virtual Environment PATH
-        run: echo ".venv/bin" >> $GITHUB_PATH
+      - uses: astral-sh/ruff-action@v3
       - name: Run ci
-        run: make ci
+        run: uv run make ci
 
   ci_mariadb:
     runs-on: ubuntu-latest
@@ -50,12 +49,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
+          python-version-file: "pyproject.toml"
           python-version: ${{ matrix.python-version }}
           allow-prereleases: true
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: set Virtual Environment PATH
-        run: echo ".venv/bin" >> $GITHUB_PATH
+      - uses: astral-sh/ruff-action@v3
       - name: Run ci
-        run: make ci
+        run: uv run make ci
