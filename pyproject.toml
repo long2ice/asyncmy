@@ -7,7 +7,7 @@ name = "asyncmy"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
-version = "0.2.10"
+dynamic = ["version"]
 
 [project.urls]
 documentation = "https://github.com/long2ice/asyncmy"
@@ -34,6 +34,10 @@ test = [
     "cryptography",
     "uvloop; sys_platform != 'win32' and implementation_name == 'cpython'",
 ]
+
+[tool.pdm.version]
+source = "file"
+path = "asyncmy/version.py"
 
 [tool.pdm.build]
 run-setuptools = true
