@@ -35,4 +35,4 @@ build: clean
 benchmark: deps
 	@python benchmark/main.py
 
-ci: build _check _test
+ci: deps _check _test

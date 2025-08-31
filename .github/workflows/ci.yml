@@ -27,9 +27,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Add virtual environment bin directory to PATH
-        shell: bash
-        run: echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
       - name: Run ci
         run: uv run make ci
 
@@ -55,8 +52,5 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - name: Add virtual environment bin directory to PATH
-        shell: bash
-        run: echo "$(pwd)/.venv/bin" >> $GITHUB_PATH
       - name: Run ci
         run: uv run make ci
