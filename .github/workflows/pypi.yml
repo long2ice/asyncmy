@@ -28,10 +28,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Install Build Module
-        run: python -m pip install --upgrade pip build
+      - uses: astral-sh/setup-uv@v6
       - name: Build
-        run: python -m build
+        run: uv build
       - uses: actions/upload-artifact@v4
         with:
           name: cibw-sdist
