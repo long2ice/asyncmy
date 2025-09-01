@@ -6,7 +6,7 @@ up:
 	@uv lock --upgrade
 
 deps:
-	uv sync --active --inexact --all-groups --all-extras
+	uv sync --active --inexact --all-groups --all-extras $(options)
 
 _style:
 	@ruff format $(checkfiles)

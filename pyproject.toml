@@ -41,7 +41,7 @@ path = "asyncmy/version.py"
 
 [tool.pdm.build]
 run-setuptools = true
-setup-script = "build.py"
+custom-hook = "build.py"
 include = ["CHANGELOG.md", "LICENSE", "README.md"]
 
 [build-system]
