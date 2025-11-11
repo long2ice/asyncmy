@@ -4,11 +4,10 @@ import pytest
 
 from asyncmy.connection import Connection
 from asyncmy.errors import OperationalError
-from conftest import connection_kwargs
 
 
 @pytest.mark.asyncio
-async def test_connect():
+async def test_connect(connection_kwargs):
     connection = Connection(**connection_kwargs)
     await connection.connect()
     assert connection._connected
@@ -22,7 +21,7 @@ async def test_connect():
 
 
 @pytest.mark.asyncio
-async def test_read_timeout():
+async def test_read_timeout(connection_kwargs):
     with pytest.raises(OperationalError):
         connection = Connection(read_timeout=1, **connection_kwargs)
         await connection.connect()

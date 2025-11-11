@@ -12,13 +12,22 @@ def mysql_password_creator():
     return os.getenv("MYSQL_PASS") or "123456"
 
 
-connection_kwargs = dict(
-    host="127.0.0.1",
-    port=3306,
-    user="root",
-    password_creator=mysql_password_creator,  # Using password_creator instead of password
-    echo=True,
-)
+@pytest_asyncio.fixture(params=["static", "creator"], scope="session")
+def connection_kwargs(request):
+    """Provide connection args for both static and dynamic password modes."""
+    base = dict(
+        host="127.0.0.1",
+        port=3306,
+        user="root",
+        echo=True,
+    )
+
+    if request.param == "static":
+        base["password"] = os.getenv("MYSQL_PASS") or "123456"
+    else:
+        base["password_creator"] = mysql_password_creator
+
+    return base
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -35,7 +44,7 @@ def event_loop():
 
 
 @pytest_asyncio.fixture(scope="session")
-async def connection():
+async def connection(connection_kwargs):  # Add connection_kwargs as parameter
     conn = await connect(**connection_kwargs)
     yield conn
     await conn.ensure_closed()
@@ -68,7 +77,7 @@ async def truncate_table(connection):
 
 
 @pytest_asyncio.fixture(scope="session")
-async def pool():
+async def pool(connection_kwargs):  # Add connection_kwargs as parameter
     pool = await asyncmy.create_pool(**connection_kwargs)
     yield pool
     pool.close()
