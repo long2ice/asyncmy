@@ -44,7 +44,7 @@ def event_loop():
 
 
 @pytest_asyncio.fixture(scope="session")
-async def connection(connection_kwargs):  # Add connection_kwargs as parameter
+async def connection(connection_kwargs):
     conn = await connect(**connection_kwargs)
     yield conn
     await conn.ensure_closed()
@@ -77,7 +77,7 @@ async def truncate_table(connection):
 
 
 @pytest_asyncio.fixture(scope="session")
-async def pool(connection_kwargs):  # Add connection_kwargs as parameter
+async def pool(connection_kwargs):
     pool = await asyncmy.create_pool(**connection_kwargs)
     yield pool
     pool.close()
