@@ -3,10 +3,10 @@ py_warn = PYTHONDEVMODE=1
 MYSQL_PASS ?= "123456"
 
 up:
-	@poetry update
+	@uv lock --upgrade
 
 deps:
-	@poetry install --all-groups
+	uv sync --active --inexact --all-groups --all-extras $(options)
 
 _style:
 	@ruff format $(checkfiles)
@@ -30,7 +30,7 @@ clean:
 	@rm -rf *.so && rm -rf build && rm -rf dist && rm -rf asyncmy/*.c && rm -rf asyncmy/*.so && rm -rf asyncmy/*.html
 
 build: clean
-	@poetry build
+	@uv build
 
 benchmark: deps
 	@python benchmark/main.py

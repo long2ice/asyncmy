@@ -7,45 +7,46 @@ name = "asyncmy"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = []
-version = "0.2.10"
+dynamic = ["version"]
 
 [project.urls]
 documentation = "https://github.com/long2ice/asyncmy"
 homepage = "https://github.com/long2ice/asyncmy"
 repository = "https://github.com/long2ice/asyncmy.git"
 
-[tool.poetry]
-include = ["CHANGELOG.md", "LICENSE", "README.md"]
-packages = [
-    { include = "asyncmy" },
+[dependency-groups]
+dev = [
+    "cython",
+    "mypy",
+    "rich",
+    "ruff",
+]
+test = [
+    "pytest",
+    "mysqlclient",
+    "pymysql >=0.8.1",
+    "aiomysql",
+    # Breaking change in 0.23.*
+    # https://github.com/pytest-dev/pytest-asyncio/issues/706
+    "pytest-asyncio >=0.21.2,<0.22",
+    "pytest-mock",
+    "pytest-xdist",
+    "cryptography",
+    "uvloop; sys_platform != 'win32' and implementation_name == 'cpython'",
 ]
 
-[tool.poetry.group.dev.dependencies]
-cython = "*"
-mypy = "*"
-rich = "*"
-ruff = "*"
+[tool.pdm.version]
+source = "file"
+path = "asyncmy/version.py"
 
-[tool.poetry.group.test.dependencies]
-pytest = "*"
-mysqlclient = "*"
-pymysql = ">=0.8.1"
-aiomysql = "*"
-# Breaking change in 0.23.*
-# https://github.com/pytest-dev/pytest-asyncio/issues/706
-pytest-asyncio = "^0.21.2"
-pytest-mock = "*"
-pytest-xdist = "*"
-cryptography = "*"
-uvloop = { version = "*", markers = "sys_platform != 'win32'" }
-
-[tool.poetry.build]
-generate-setup-file = true
-script = "build.py"
+[tool.pdm.build]
+run-setuptools = true
+custom-hook = "build.py"
+include = ["CHANGELOG.md", "LICENSE", "README.md"]
 
 [build-system]
-build-backend = "poetry.core.masonry.api"
-requires = ["poetry-core", "setuptools", "cython"]
+build-backend = "pdm.backend"
+requires = ["pdm-backend", "setuptools", "cython"]
 
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'

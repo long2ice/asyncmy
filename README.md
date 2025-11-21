@@ -118,8 +118,7 @@ async def run():
             await cursor.execute("SELECT 1")
             ret = await cursor.fetchone()
             assert ret == (1,)
-    pool.close()
-    await pool.wait_closed()
+    await pool.aclose()
 
 if __name__ == '__main__':
     asyncio.run(run())
