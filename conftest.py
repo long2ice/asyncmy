@@ -36,7 +36,7 @@ async def connection():
     await conn.ensure_closed()
 
 
-@pytest_asyncio.fixture(scope="session", autouse=True)
+@pytest_asyncio.fixture(scope="session", autouse=False)
 async def initialize_tests(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("create database if not exists test")
@@ -56,7 +56,7 @@ async def initialize_tests(connection):
         )
 
 
-@pytest_asyncio.fixture(scope="function", autouse=True)
+@pytest_asyncio.fixture(scope="function", autouse=False)
 async def truncate_table(connection):
     async with connection.cursor(cursor=DictCursor) as cursor:
         await cursor.execute("truncate table test.asyncmy")

@@ -30,7 +30,7 @@ cpdef dict escape_dict(dict val, str charset, mapping: dict = None):
     n = {}
     for k, v in val.items():
         quoted = escape_item(v, charset, mapping)
-        n[k] = quoted
+        n[escape_string(str(k))] = quoted
     return n
 
 cpdef str escape_sequence(tuple val, str charset, mapping: dict = None):
