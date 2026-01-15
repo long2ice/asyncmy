@@ -20,18 +20,11 @@ cpdef escape_item(val, str charset, mapping: dict = None):
         except KeyError:
             raise TypeError("no default type converter defined")
 
-    if encoder in (escape_dict, escape_sequence):
+    if encoder is escape_sequence:
         val = encoder(val, charset, mapping)
     else:
         val = encoder(val, mapping)
     return val
-
-cpdef dict escape_dict(dict val, str charset, mapping: dict = None):
-    n = {}
-    for k, v in val.items():
-        quoted = escape_item(v, charset, mapping)
-        n[k] = quoted
-    return n
 
 cpdef str escape_sequence(tuple val, str charset, mapping: dict = None):
     n = []
@@ -292,7 +285,6 @@ cdef dict encoders = {
     list: escape_sequence,
     set: escape_sequence,
     frozenset: escape_sequence,
-    dict: escape_dict,
     type(None): escape_None,
     datetime.date: escape_date,
     datetime.datetime: escape_datetime,
