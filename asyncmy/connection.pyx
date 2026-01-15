@@ -298,6 +298,7 @@ class Connection:
         self._connected = False
         self._reader: Optional[StreamReader] = None
         self._writer: Optional[StreamWriter] = None
+        self._close_reason = None
 
         self._auth_plugin_name = ""
 
@@ -620,7 +621,11 @@ class Connection:
         """
         buff = bytearray()
         while True:
-            packet_header = await self._read_bytes(4)
+            try:
+                packet_header = await self._read_bytes(4)
+            except asyncio.CancelledError:
+                self._close_on_cancel()
+                raise
             btrl, btrh, packet_number = HBB.unpack(packet_header)
             bytes_to_read = btrl + (btrh << 16)
             if packet_number != self._next_seq_id:
@@ -635,7 +640,11 @@ class Connection:
                     % (packet_number, self._next_seq_id)
                 )
             self._next_seq_id = (self._next_seq_id + 1) % 256
-            recv_data = await self._read_bytes(bytes_to_read)
+            try:
+                recv_data = await self._read_bytes(bytes_to_read)
+            except asyncio.CancelledError:
+                self._close_on_cancel()
+                raise
             buff.extend(recv_data)
             # https://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
             if bytes_to_read == 0xFFFFFF:
@@ -712,7 +721,7 @@ class Connection:
         :raise ValueError: If no username was specified.
         """
         if not self._connected:
-            raise errors.InterfaceError(0, "Not connected")
+            raise errors.InterfaceError(0, self._close_reason or "Not connected")
 
         # If the last query was unbuffered, make sure it finishes before
         # sending new commands
@@ -1031,6 +1040,11 @@ class Connection:
 
     def get_server_info(self):
         return self.server_version
+
+    def _close_on_cancel(self):
+        self.close()
+        self._close_reason = "Cancelled during execution"
+        self._connected = False
 
     Warning = errors.Warning
     Error = errors.Error

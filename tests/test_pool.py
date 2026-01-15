@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from asyncmy.connection import Connection
@@ -30,3 +32,20 @@ async def test_acquire(pool):
     await pool.release(conn)
     assert pool.freesize == 1
     assert pool.size == 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_execute(pool, event_loop):
+    async def run(index):
+        async with pool.acquire() as conn:
+            async with conn.cursor() as cursor:
+                await cursor.execute(f"SELECT {index}")
+                ret = await cursor.fetchone()
+                assert ret == (index,)
+
+    task = event_loop.create_task(run(1))
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    await run(2)
