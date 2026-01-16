@@ -110,6 +110,9 @@ class Connection:
     :param host: Host where the database server is located.
     :param user: Username to log in as.
     :param password: Password to use.
+    :param password_creator:
+        Optional callable or coroutine that returns a password string
+        every time a new connection is established.
     :param database: Database to use, None to not use a particular one.
     :param port: MySQL port to use, default is usually OK. (default: 3306)
     :param unix_socket: Use a unix socket rather than TCP/IP.
@@ -154,6 +157,7 @@ class Connection:
             *,
             user=None,  # The first four arguments is based on DB-API 2.0 recommendation.
             password="",
+            password_creator=None,
             host=None,
             database=None,
             unix_socket=None,
@@ -242,6 +246,7 @@ class Connection:
             raise ValueError("port should be of type int")
         self._user = user or DEFAULT_USER
         self._password = password or b""
+        self._password_creator = password_creator
         if isinstance(self._password, str):
             self._password = self._password.encode("latin1")
         self._db = database
@@ -550,6 +555,12 @@ class Connection:
         if self._connected:
             return self._reader, self._writer
         try:
+
+            if self._password_creator is not None:
+                new_pw = self._password_creator()
+                if asyncio.iscoroutine(new_pw):
+                    new_pw = await new_pw
+                self._password = new_pw.encode("latin1")
 
             if self._unix_socket:
                 self._reader, self._writer = await asyncio.wait_for(asyncio.open_unix_connection(self._unix_socket),
@@ -1283,6 +1294,7 @@ class LoadLocalFile:
 
 def connect(user=None,
             password="",
+            password_creator=None,
             host=None,
             database=None,
             unix_socket=None,
@@ -1312,6 +1324,7 @@ def connect(user=None,
     coro = _connect(
         user=user,
         password=password,
+        password_creator=password_creator,
         host=host,
         database=database,
         unix_socket=unix_socket,
