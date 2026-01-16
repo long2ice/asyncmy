@@ -65,7 +65,7 @@ class Pool(asyncio.AbstractServer):
         """Close pool.
 
         Mark all pool connections to be closed on getting back to pool.
-        Closed pool doesn't allow to acquire new connections.
+        Closed pool doesn't allow one to acquire new connections.
         """
         if self._closed:
             return
