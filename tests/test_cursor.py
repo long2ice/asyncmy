@@ -4,7 +4,7 @@ from enum import Enum
 
 import pytest
 
-from asyncmy.cursors import DictCursor
+from asyncmy.cursors import DictCursor, RE_INSERT_VALUES
 
 
 @pytest.mark.asyncio
@@ -140,3 +140,41 @@ async def test_insert_enum(connection):
             ),
         )
         assert rows == 1
+
+
+def test_executemany_regex():
+    query = "INSERT INTO foo (bar, baz) VALUES (%s, %s)"
+    match = RE_INSERT_VALUES.match(query)
+    assert match is not None
+    assert match.group(1) == "INSERT INTO foo (bar, baz) VALUES "
+    assert match.group(2) == "(%s, %s)"
+    assert match.group(3) == ""
+
+    # Deprecated VALUES syntax
+    query = "INSERT INTO foo (bar, baz) VALUES (%s, %s) ON DUPLICATE KEY UPDATE baz=VALUES(baz)"
+    match = RE_INSERT_VALUES.match(query)
+    assert match is not None
+    assert match.group(1) == "INSERT INTO foo (bar, baz) VALUES "
+    assert match.group(2) == "(%s, %s)"
+    assert match.group(3) == " ON DUPLICATE KEY UPDATE baz=VALUES(baz)"
+
+    # The new syntax
+    query = "INSERT INTO foo (bar, baz) VALUES (%s, %s) AS new ON DUPLICATE KEY UPDATE baz=new.baz"
+    match = RE_INSERT_VALUES.match(query)
+    assert match is not None
+    assert match.group(1) == "INSERT INTO foo (bar, baz) VALUES "
+    assert match.group(2) == "(%s, %s)"
+    assert match.group(3) == " AS new ON DUPLICATE KEY UPDATE baz=new.baz"
+
+    # Test REPLACE VALUES
+    query = "REPLACE INTO foo (bar, baz, aa, bb) VALUES (%s, %s, %s, %s)"
+    match = RE_INSERT_VALUES.match(query)
+    assert match is not None
+    assert match.group(1) == "REPLACE INTO foo (bar, baz, aa, bb) VALUES "
+    assert match.group(2) == "(%s, %s, %s, %s)"
+    assert match.group(3) == ""
+
+    # Test invalid queries
+    query = "INSERT INTO foo (bar, baz) VALUES (%s, %s), (%s, %s)"
+    match = RE_INSERT_VALUES.match(query)
+    assert match is None
