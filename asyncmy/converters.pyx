@@ -1,3 +1,4 @@
+# cython: freethreading_compatible=True
 import re
 import time
 from decimal import Decimal

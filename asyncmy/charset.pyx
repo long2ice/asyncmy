@@ -1,3 +1,4 @@
+# cython: freethreading_compatible=True
 cdef class Charset:
     cdef:
         public int id

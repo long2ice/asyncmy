@@ -1,5 +1,6 @@
 import asyncio
 import os
+from importlib.metadata import version
 
 import pytest_asyncio
 from asyncmy.cursors import DictCursor
@@ -16,16 +17,19 @@ connection_kwargs = dict(
 )
 
 
-@pytest_asyncio.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop._close = loop.close
-    loop.close = lambda: None
+def _pytest_asyncio_version() -> tuple[int, int]:
+    major, minor, *_ = version("pytest-asyncio").split(".")
+    return int(major), int(minor)
 
-    yield loop
 
-    loop._close()
+if _pytest_asyncio_version() < (0, 26):
+
+    @pytest_asyncio.fixture(scope="session")
+    def event_loop():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        yield loop
+        loop.close()
 
 
 @pytest_asyncio.fixture(scope="session")

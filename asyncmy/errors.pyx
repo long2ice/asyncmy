@@ -1,3 +1,4 @@
+# cython: freethreading_compatible=True
 from .constants.ER import *
 from .structs import H
 
