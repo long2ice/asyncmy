@@ -11,6 +11,7 @@
 
 - **API compatible** with [aiomysql](https://github.com/aio-libs/aiomysql)
 - **Faster** via [Cython](https://cython.org/)-compiled core
+- **Connection URLs & factory** built on [unicomm](https://github.com/skelsec/asysocks) + [asyauth](https://github.com/skelsec/asyauth), with built-in TLS and proxy (SOCKS/HTTP) support ([details](#connection-urls--factory))
 - **MySQL replication protocol** with asyncio ([BinLogStream](https://github.com/long2ice/asyncmy/blob/dev/asyncmy/replication/binlogstream.py))
 - **CI-tested** on MySQL and MariaDB ([workflow](https://github.com/long2ice/asyncmy/blob/dev/.github/workflows/ci.yml))
 
@@ -126,6 +127,82 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+### Connection URLs & factory
+
+asyncmy uses [unicomm](https://github.com/skelsec/asysocks) (from `asysocks`) as its **only transport** and [asyauth](https://github.com/skelsec/asyauth) credential objects. This means a whole connection — host, port, database, TLS, proxies and credentials — can be described by a single URL and built with `MySQLConnectionFactory`.
+
+```py
+import asyncio
+
+from asyncmy import MySQLConnectionFactory
+
+
+async def main():
+    factory = MySQLConnectionFactory.from_url(
+        "mysql://root:secret@127.0.0.1:3306/test"
+    )
+
+    # single connection
+    conn = await factory.create_connection()
+    async with conn.cursor() as cursor:
+        await cursor.execute("SELECT VERSION()")
+        print(await cursor.fetchone())
+    await conn.ensure_closed()
+
+    # or a pool
+    pool = await factory.create_pool(minsize=1, maxsize=10)
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT 1")
+    pool.close()
+    await pool.wait_closed()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**URL format**
+
+```
+<scheme>://[user[:password]@]host[:port][/database][?options]
+```
+
+| Scheme | Transport |
+| ------ | --------- |
+| `mysql` / `mariadb` | plaintext TCP (default port `3306`) |
+| `mysqls` / `mariadbs` | TLS, negotiated mid-handshake (STARTTLS style) |
+
+Common query options (parsed by unicomm):
+
+- `timeout=10` — connect timeout in seconds
+- `proxytype=socks5&proxyhost=127.0.0.1&proxyport=1080` — tunnel through a SOCKS4/5 or HTTP proxy (chainable as `proxy1type`, `proxy2type`, …)
+- `sslca=/path/ca.pem&sslcert=/path/client.pem&sslkey=/path/client.key` — TLS material for `mysqls://`
+
+**TLS**
+
+`mysqls://` upgrades the connection to TLS. With no `ssl*` params the default is a **no-verify** context (convenient for self-signed dev servers); pass `?sslca=/path/ca.pem` to verify against a CA.
+
+```py
+factory = MySQLConnectionFactory.from_url("mysqls://root:secret@db.example.com:3306/test")
+conn = await factory.create_connection()
+```
+
+**Authentication**
+
+The MySQL auth handshake (`mysql_native_password`, `caching_sha2_password`, `sha256_password`, `client_ed25519`) is negotiated with the server; the URL simply carries the secret. An explicit `+plain-password` tag is optional:
+
+```py
+# mysql_native_password user — the +plain-password tag is optional
+factory = MySQLConnectionFactory.from_url(
+    "mysql+plain-password://nativeuser:native123@127.0.0.1:3306/test"
+)
+```
+
+The classic keyword API (`connect(host=..., user=..., password=...)`) keeps working unchanged; you can also pass a prebuilt `target=MySQLTarget(...)` and `credential=UniCredential(...)` to `connect()` / `Connection()` directly. See [`examples/connection_url.py`](./examples/connection_url.py) for a runnable script.
+
+> **Note:** since unicomm is now the only transport (which is TCP based), UNIX-socket connections (`unix_socket=...`) are no longer supported.
 
 ## Replication
 

@@ -267,7 +267,7 @@ class BinLogStream:
                 prelude += struct.pack("<I", gtid_set.encoded_length)
                 # encoded_data
                 prelude += gtid_set.encoded()
-        self._connection._write_bytes(prelude)
+        await self._connection._write_bytes(prelude)
         self._connection._next_seq_id = 1
         self._connected = True
 
@@ -341,7 +341,7 @@ class BinLogStream:
         if not self._report_slave:
             return
         packet = self._report_slave.encoded(self._server_id)
-        self._connection._write_bytes(packet)
+        await self._connection._write_bytes(packet)
         self._connection._next_seq_id = 1
         await self._connection.read_packet()
 

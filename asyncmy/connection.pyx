@@ -3,7 +3,7 @@
 # Error codes:
 # https://dev.mysql.com/doc/refman/5.5/en/error-handling.html
 import asyncio
-import errno
+import copy
 import os
 import socket
 import sys
@@ -11,9 +11,15 @@ import warnings
 from asyncio import StreamReader, StreamWriter
 from typing import Optional, Type
 
+from asysocks.unicomm.client import UniClient
+from asysocks.unicomm.common.target import UniProto
+from asyauth.common.credentials import UniCredential
+
 from asyncmy import auth, converters, errors
 from asyncmy.charset import charset_by_id, charset_by_name
+from asyncmy.commons.target import MySQLTarget
 from asyncmy.cursors import Cursor
+from asyncmy.network.packetizer import MySQLPacketizer
 from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
@@ -178,6 +184,8 @@ class Connection:
             server_public_key=None,
             echo=False,
             ssl=None,
+            target=None,
+            credential=None,
             db=None,  # deprecated
     ):
         self._loop = asyncio.get_event_loop()
@@ -187,6 +195,24 @@ class Connection:
             # See https://github.com/PyMySQL/PyMySQL/issues/939
             # warnings.warn("'db' is deprecated, use 'database'", DeprecationWarning, 3)
             database = db
+
+        # asysocks/asyauth based configuration. A MySQLTarget describes where
+        # to connect (host/port/proxies/timeout/ssl) and a UniCredential
+        # carries who to connect as. When passed, they take precedence over
+        # the equivalent classic keyword arguments.
+        self._target = target
+        self._credential = credential
+        if credential is not None:
+            if user is None and credential.username is not None:
+                user = credential.username
+            if credential.secret is not None:
+                password = credential.secret
+        if target is not None:
+            host = target.get_ip_or_hostname()
+            port = target.port or port
+            if target.timeout:
+                connect_timeout = target.timeout
+
         self._local_infile = bool(local_infile)
         if self._local_infile:
             client_flag |= LOCAL_FILES
@@ -232,6 +258,18 @@ class Connection:
                 raise NotImplementedError("SSL module not found")
             client_flag |= SSL
             self._ssl_context = self._create_ssl_ctx(ssl)
+
+        # TLS requested through the target (e.g. mysqls:// or sslverify params).
+        # MySQL negotiates TLS mid-handshake, so we only remember the context
+        # here and upgrade the connection in _request_authentication().
+        if target is not None and target.is_ssl() and self._ssl_context is None:
+            if not SSL_ENABLED:
+                raise NotImplementedError("SSL module not found")
+            client_flag |= SSL
+            if target.ssl_ctx is not None:
+                self._ssl_context = target.ssl_ctx.get_ssl_context()
+            else:
+                self._ssl_context = self._create_ssl_ctx({})
 
         self._echo = echo
         self._last_usage = self._loop.time()
@@ -295,7 +333,17 @@ class Connection:
         if program_name:
             self._connect_attrs["program_name"] = program_name
 
+        # Whether the transport is considered secure (unix socket historically,
+        # now set once TLS has been negotiated). Used by the auth plugins to
+        # decide if the cleartext password may be sent.
+        self.ssl = self._ssl_context is not None
+
         self._connected = False
+        # unicomm connection + its long-lived read generator. self._reader /
+        # self._writer are kept as references to the underlying asyncio stream
+        # purely for introspection and pool liveness checks.
+        self._conn = None
+        self._read_gen = None
         self._reader: Optional[StreamReader] = None
         self._writer: Optional[StreamWriter] = None
 
@@ -338,8 +386,13 @@ class Connection:
 
     def close(self):
         """Close socket connection"""
-        if self._writer:
-            self._writer.transport.close()
+        if self._conn is not None and self._conn.writer is not None:
+            try:
+                self._conn.writer.close()
+            except Exception:
+                pass
+        self._conn = None
+        self._read_gen = None
         self._writer = None
         self._reader = None
 
@@ -359,12 +412,16 @@ class Connection:
 
     async def ensure_closed(self):
         """Close connection without QUIT message."""
-        if self._connected:
+        if self._connected and self._conn is not None:
             send_data = i.pack(1) + B.pack(COM_QUIT)
-            self._write_bytes(send_data)
-            await self._writer.drain()
-            self._writer.close()
-            await self._writer.wait_closed()
+            try:
+                await self._write_bytes(send_data)
+                writer = self._conn.writer
+                await self._conn.close()
+                if writer is not None:
+                    await writer.wait_closed()
+            except Exception:
+                pass
         self.close()
         self._connected = False
 
@@ -434,23 +491,19 @@ class Connection:
         await self._read_ok_packet()
 
     def _set_keep_alive(self):
-        transport = self._writer.transport
-        transport.pause_reading()
-        raw_sock = transport.get_extra_info('socket', default=None)
+        # Best effort: proxied/tunnelled unicomm connections may not expose a
+        # real socket, in which case we simply skip the tuning.
+        raw_sock = self._conn.get_extra_info('socket', default=None)
         if raw_sock is None:
-            raise RuntimeError("Transport does not expose socket instance")
+            return
         raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        transport.resume_reading()
 
     def _set_nodelay(self, value):
         flag = int(bool(value))
-        transport = self._writer.transport
-        transport.pause_reading()
-        raw_sock = transport.get_extra_info('socket', default=None)
+        raw_sock = self._conn.get_extra_info('socket', default=None)
         if raw_sock is None:
-            raise RuntimeError("Transport does not expose socket instance")
+            return
         raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, flag)
-        transport.resume_reading()
 
     def escape(self, obj, mapping=None):
         """Escape whatever value is passed.
@@ -546,32 +599,46 @@ class Connection:
         self._charset = charset
         self._encoding = encoding
 
+    def _build_target(self):
+        """Return the unicomm target used to open the (plaintext TCP) socket.
+
+        TLS is always negotiated mid-handshake (STARTTLS style), so the socket
+        itself is opened as plain ``CLIENT_TCP`` even when SSL is requested.
+        """
+        if self._target is not None:
+            target = copy.deepcopy(self._target)
+        else:
+            target = MySQLTarget(
+                ip=self._host,
+                port=self._port,
+                timeout=self._connect_timeout,
+            )
+        target.protocol = UniProto.CLIENT_TCP
+        return target
+
     async def connect(self):
         if self._connected:
-            return self._reader, self._writer
+            return self._conn
         try:
-
             if self._unix_socket:
-                self._reader, self._writer = await asyncio.wait_for(asyncio.open_unix_connection(self._unix_socket),
-                                                                    timeout=self._connect_timeout, )
-                self.host_info = "Localhost via UNIX socket"
-                self._secure = True
-            else:
-                while True:
-                    try:
-                        self._reader, self._writer = await asyncio.wait_for(asyncio.open_connection(
-                            self._host,
-                            self._port,
-                        ), timeout=self._connect_timeout)
-                        self._set_keep_alive()
-                        break
-                    except (OSError, IOError) as e:
-                        if e.errno == errno.EINTR:
-                            continue
-                        raise
-                self.host_info = "socket %s:%d" % (self._host, self._port)
-            if not self._unix_socket:
-                self._set_nodelay(True)
+                raise NotImplementedError(
+                    "UNIX socket connections are not supported: asyncmy now uses "
+                    "unicomm (asysocks) as its only transport, which is TCP based. "
+                    "Connect over TCP via host/port instead."
+                )
+
+            target = self._build_target()
+            client = UniClient(target, MySQLPacketizer())
+            self._conn = await asyncio.wait_for(
+                client.connect(), timeout=self._connect_timeout
+            )
+            # Keep references to the underlying stream for introspection / pool
+            # liveness checks. All real I/O goes through self._conn.
+            self._reader = self._conn.reader
+            self._writer = self._conn.writer
+            self.host_info = "socket %s:%d" % (self._host, self._port)
+            self._set_keep_alive()
+            self._set_nodelay(True)
             self._next_seq_id = 0
 
             await self._get_server_information()
@@ -599,7 +666,7 @@ class Connection:
             # So just reraise it.
             raise e
 
-    def write_packet(self, bytes payload):
+    async def write_packet(self, bytes payload):
         """
         Writes an entire "mysql packet" in its entirety to the network
         adding its length and sequence number.
@@ -607,7 +674,7 @@ class Connection:
         # Internal note: when you build packet manually and calls _write_bytes()
         # directly, you should set self._next_seq_id properly.
         data = _pack_int24(len(payload)) + B.pack(self._next_seq_id) + payload
-        self._write_bytes(data)
+        await self._write_bytes(data)
         self._next_seq_id = (self._next_seq_id + 1) % 256
 
     async def read_packet(self, packet_type=MysqlPacket):
@@ -618,9 +685,11 @@ class Connection:
         :raise OperationalError: If the connection to the MySQL server is lost.
         :raise InternalError: If the packet sequence number is wrong.
         """
-        # Read first packet header and data
-        packet_header = await self._read_bytes(4)
-        btrl, btrh, packet_number = HBB.unpack(packet_header)
+        # The MySQLPacketizer hands us one complete physical packet (4 byte
+        # header + payload) at a time; we still own sequence validation and
+        # >16MB payload reassembly here.
+        frame = await self._read_frame()
+        btrl, btrh, packet_number = HBB.unpack(frame[:4])
         bytes_to_read = btrl + (btrh << 16)
         if packet_number != self._next_seq_id:
             if packet_number == 0:
@@ -634,20 +703,18 @@ class Connection:
                 % (packet_number, self._next_seq_id)
             )
         self._next_seq_id = (self._next_seq_id + 1) % 256
-        recv_data = await self._read_bytes(bytes_to_read)
+        recv_data = frame[4:]
 
         # Fast path: single packet (most common case ~99%)
-        # Avoid bytearray allocation and bytes() conversion
         if bytes_to_read < MAX_PACKET_LEN:
             packet = packet_type(recv_data, encoding=self._encoding)
         else:
             # Slow path: multiple packets (large data split across 16MB chunks)
-            # Use list accumulation + join to avoid repeated bytearray.extend() reallocations
             # https://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
             buff = [recv_data]
             while bytes_to_read == 0xFFFFFF:
-                packet_header = await self._read_bytes(4)
-                btrl, btrh, packet_number = HBB.unpack(packet_header)
+                frame = await self._read_frame()
+                btrl, btrh, packet_number = HBB.unpack(frame[:4])
                 bytes_to_read = btrl + (btrh << 16)
                 if packet_number != self._next_seq_id:
                     if packet_number == 0:
@@ -660,8 +727,7 @@ class Connection:
                         % (packet_number, self._next_seq_id)
                     )
                 self._next_seq_id = (self._next_seq_id + 1) % 256
-                recv_data = await self._read_bytes(bytes_to_read)
-                buff.append(recv_data)
+                buff.append(frame[4:])
 
             packet = packet_type(b''.join(buff), encoding=self._encoding)
         if packet.is_error_packet():
@@ -670,28 +736,53 @@ class Connection:
             packet.raise_for_error()
         return packet
 
-    async def _read_bytes(self, num_bytes: int):
+    async def _read_frame(self):
+        """Pull one complete MySQL wire packet (header + payload) from unicomm."""
+        if self._conn is None:
+            raise errors.OperationalError(
+                CR_SERVER_LOST, "Lost connection to MySQL server during query"
+            )
+        if self._read_gen is None:
+            self._read_gen = self._conn.read()
         try:
             if self._read_timeout:
                 try:
-                    data = await asyncio.wait_for(self._reader.readexactly(num_bytes), self._read_timeout)
+                    frame = await asyncio.wait_for(
+                        self._read_gen.__anext__(), self._read_timeout
+                    )
                 except asyncio.TimeoutError:
                     await self.ensure_closed()
                     raise
             else:
-                data = await self._reader.readexactly(num_bytes)
+                frame = await self._read_gen.__anext__()
+        except StopAsyncIteration:
+            raise errors.OperationalError(
+                CR_SERVER_LOST, "Lost connection to MySQL server during query"
+            )
         except (IOError, OSError, asyncio.TimeoutError) as e:
             raise errors.OperationalError(
                 CR_SERVER_LOST,
                 "Lost connection to MySQL server during query (%s)" % (e,),
             )
-        except asyncio.IncompleteReadError as e:
-            msg = "Lost connection to MySQL server during query"
-            raise errors.OperationalError(CR_SERVER_LOST, msg) from e
-        return data
+        # UniConnection.read() yields None to signal EOF / a read error.
+        if frame is None:
+            raise errors.OperationalError(
+                CR_SERVER_LOST, "Lost connection to MySQL server during query"
+            )
+        return frame
 
-    def _write_bytes(self, bytes data):
-        self._writer.write(data)
+    async def _write_bytes(self, bytes data):
+        if self._conn is None:
+            raise errors.OperationalError(
+                CR_SERVER_LOST, "Lost connection to MySQL server during query"
+            )
+        try:
+            await self._conn.write(data)
+        except (IOError, OSError) as e:
+            raise errors.OperationalError(
+                CR_SERVER_LOST,
+                "Lost connection to MySQL server during query (%s)" % (e,),
+            )
 
     async def _read_query_result(self, unbuffered=False):
         self._result = None
@@ -752,7 +843,7 @@ class Connection:
         # tiny optimization: build first packet manually instead of
         # calling self..write_packet()
         prelude = iB.pack(packet_size, command)
-        self._write_bytes(prelude + sql[: packet_size - 1])
+        await self._write_bytes(prelude + sql[: packet_size - 1])
         self._next_seq_id = 1
 
         if packet_size < MAX_PACKET_LEN:
@@ -761,7 +852,7 @@ class Connection:
         sql = sql[packet_size - 1:]
         while True:
             packet_size = min(MAX_PACKET_LEN, len(sql))
-            self.write_packet(sql[:packet_size])
+            await self.write_packet(sql[:packet_size])
             sql = sql[packet_size:]
             if not sql and packet_size < MAX_PACKET_LEN:
                 break
@@ -780,27 +871,17 @@ class Connection:
             data = IIB.pack(self._client_flag, MAX_PACKET_LEN, charset_id)
             data += b'\x00' * (32 - len(data))
 
-            self.write_packet(data)
+            await self.write_packet(data)
 
-            # Stop sending events to data_received
-            self._writer.transport.pause_reading()
-
-            # Get the raw socket from the transport
-            raw_sock = self._writer.transport.get_extra_info('socket',
-                                                             default=None)
-            if raw_sock is None:
-                raise RuntimeError("Transport does not expose socket instance")
-
-            raw_sock = raw_sock.dup()
-            self._writer.transport.close()
-            # MySQL expects TLS negotiation to happen in the middle of a
-            # TCP connection not at start. Passing in a socket to
-            # open_connection will cause it to negotiate TLS on an existing
-            # connection not initiate a new one.
-            self._reader, self._writer = await asyncio.open_connection(
-                sock=raw_sock, ssl=self._ssl_context,
-                server_hostname=self._host,
-            )
+            # MySQL negotiates TLS in the middle of the connection, after the
+            # SSL request packet. unicomm upgrades the existing connection in
+            # place (MemoryBIO based) and keeps our MySQLPacketizer as the
+            # inner framer, so reads/writes keep working transparently.
+            await self._conn.wrap_ssl(self._ssl_context)
+            self._reader = self._conn.reader
+            self._writer = self._conn.writer
+            self._secure = True
+            self.ssl = True
         if isinstance(self._user, str):
             self._user = self._user.encode(self._encoding)
 
@@ -853,7 +934,7 @@ class Connection:
                 connect_attrs += B_.pack(len(v)) + v
             data += B_.pack(len(connect_attrs)) + connect_attrs
 
-        self.write_packet(data)
+        await self.write_packet(data)
         auth_packet = await self.read_packet()
 
         # if authentication method isn't accepted the first byte
@@ -867,7 +948,7 @@ class Connection:
             else:
                 # send legacy handshake
                 data = auth.scramble_old_password(self._password, self.salt) + b"\0"
-                self.write_packet(data)
+                await self.write_packet(data)
                 auth_packet = await self.read_packet()
         elif auth_packet.is_extra_auth_data():
             # https://dev.mysql.com/doc/internals/en/successful-authentication.html
@@ -916,12 +997,12 @@ class Connection:
                 prompt = pkt.read_all()
 
                 if prompt == b"Password: ":
-                    self.write_packet(self._password + b"\0")
+                    await self.write_packet(self._password + b"\0")
                 elif handler:
                     resp = "no response - TypeError within plugin.prompt method"
                     try:
                         resp = handler.prompt(echo, prompt)
-                        self.write_packet(resp + b"\0")
+                        await self.write_packet(resp + b"\0")
                     except AttributeError:
                         raise errors.OperationalError(
                             2059,
@@ -950,7 +1031,7 @@ class Connection:
                 2059, "Authentication plugin '%s' not configured" % plugin_name
             )
 
-        self.write_packet(data)
+        await self.write_packet(data)
         pkt = await self.read_packet()
         pkt.check_error()
         return pkt
@@ -1338,6 +1419,8 @@ def connect(user=None,
             echo=False,
             server_public_key=None,
             ssl=None,
+            target=None,
+            credential=None,
             db=None,  # deprecated
             ):
     coro = _connect(
@@ -1367,6 +1450,8 @@ def connect(user=None,
         server_public_key=server_public_key,
         echo=echo,
         ssl=ssl,
+        target=target,
+        credential=credential,
         db=db,  # deprecated
     )
     return _ConnectionContextManager(coro)
