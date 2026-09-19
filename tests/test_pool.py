@@ -72,3 +72,29 @@ async def test_wait_closed_wakes_on_disconnected_release():
     await pool.release(conn)
     await asyncio.wait_for(waiter, timeout=5)
     assert pool.size == 0
+
+
+@pytest.mark.asyncio
+async def test_terminate_wakes_every_wait_closed_waiter():
+    """terminate() must wake every wait_closed() parked on the condition, not
+    just one of them, see #157.
+
+    Unlike release(), which frees exactly one connection and so should only
+    wake one waiter, terminate() invalidates the wait condition for all of
+    them at once (size drops to 0 immediately), so it needs notify_all()
+    rather than notify().
+    """
+    pool = await asyncmy.create_pool(minsize=1, maxsize=3, **connection_kwargs)
+    conn = await pool.acquire()  # held, never released
+    pool.close()
+
+    waiters = [asyncio.create_task(pool.wait_closed()) for _ in range(3)]
+    await asyncio.sleep(0.1)  # let them all park on the condition
+    assert all(not w.done() for w in waiters)
+
+    pool.terminate()
+    done, pending = await asyncio.wait(waiters, timeout=5)
+
+    assert not pending, f"{len(pending)} waiter(s) never woke up after terminate()"
+    assert len(done) == 3
+    del conn
