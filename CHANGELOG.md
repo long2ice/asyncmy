@@ -7,6 +7,9 @@
 - Fix `Pool.wait_closed()` blocking forever when the last connection was released while inside a
   transaction or after disconnecting, and notify pool waiters when a pool-filling `connect()`
   raises (#154).
+- Fix `Pool.terminate()` not notifying `wait_closed()` waiters parked on the pool's condition, so
+  a `wait_closed()` call already in flight when `terminate()` runs would hang forever even though
+  the pool was fully drained (#157).
 
 ### 0.2.14
 

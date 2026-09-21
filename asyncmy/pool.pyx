@@ -90,6 +90,10 @@ class Pool(asyncio.AbstractServer):
             self._terminated.add(conn)
 
         self._used.clear()
+        # size <= freesize now for every waiter parked in wait_closed(), but
+        # nothing else will tell them: schedule a wake so all of them (not
+        # just one, unlike release()'s _wakeup()) re-check the predicate.
+        self._loop.create_task(self._wakeup_all())
 
     async def wait_closed(self):
         """Wait for closing all pool's connections."""
@@ -180,6 +184,10 @@ class Pool(asyncio.AbstractServer):
     async def _wakeup(self):
         async with self._cond:
             self._cond.notify()
+
+    async def _wakeup_all(self):
+        async with self._cond:
+            self._cond.notify_all()
 
     def release(self, conn: Connection):
         """
