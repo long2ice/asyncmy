@@ -39,7 +39,7 @@ from .constants.COMMAND import (COM_INIT_DB, COM_PING, COM_PROCESS_KILL,
                                 COM_QUERY, COM_QUIT, COM_STMT_CLOSE,
                                 COM_STMT_EXECUTE, COM_STMT_PREPARE)
 from .constants.CR import (CR_COMMANDS_OUT_OF_SYNC, CR_CONN_HOST_ERROR,
-                           CR_SERVER_LOST)
+                           CR_SERVER_GONE_ERROR, CR_SERVER_LOST)
 from .constants.ER import FILE_NOT_FOUND
 from .constants.FIELD_TYPE import (BIT, BLOB, GEOMETRY, JSON, LONG_BLOB,
                                    MEDIUM_BLOB, STRING, TINY_BLOB, VAR_STRING,
@@ -254,8 +254,13 @@ class _MySQLProtocol(asyncio.BufferedProtocol):
 
     # -- consumer helpers --
 
-    async def wait_for_data(self):
+    async def wait_for_data(self, need):
         """Suspend until more bytes arrive (or EOF / connection loss)."""
+        # wait_for() may schedule this coroutine after the transport callback.
+        # Recheck the read predicate before registering a waiter so that data,
+        # EOF, or errors delivered in that gap cannot lose their notification.
+        if self.length - self.pos >= need or self.eof or self.exc is not None:
+            return
         waiter = self._loop.create_future()
         self._read_waiter = waiter
         try:
@@ -1011,7 +1016,7 @@ class Connection:
             try:
                 if read_timeout:
                     try:
-                        await asyncio.wait_for(proto.wait_for_data(), read_timeout)
+                        await asyncio.wait_for(proto.wait_for_data(need), read_timeout)
                     except asyncio.TimeoutError:
                         await self.ensure_closed()
                         raise errors.OperationalError(
@@ -1019,7 +1024,7 @@ class Connection:
                             "Lost connection to MySQL server during query (read timeout)",
                         )
                 else:
-                    await proto.wait_for_data()
+                    await proto.wait_for_data(need)
             except asyncio.CancelledError:
                 # Cancelled mid-read: the protocol stream is now desynced, so
                 # the connection must not be reused (e.g. returned to a pool).
@@ -1099,7 +1104,23 @@ class Connection:
         return data
 
     def _write_bytes(self, bytes data):
-        self._transport.write(data)
+        transport = self._transport
+        if transport is None or transport.is_closing():
+            self.close()
+            self._connected = False
+            raise errors.OperationalError(CR_SERVER_GONE_ERROR, "MySQL server has gone away")
+        try:
+            transport.write(data)
+        except (OSError, RuntimeError) as exc:
+            # uvloop raises RuntimeError for a closed handle. Preserve unrelated
+            # RuntimeErrors instead of masking application/programming errors.
+            if isinstance(exc, RuntimeError) and not transport.is_closing():
+                raise
+            self.close()
+            self._connected = False
+            raise errors.OperationalError(
+                CR_SERVER_GONE_ERROR, "MySQL server has gone away (%s)" % (exc,)
+            ) from exc
 
     async def _read_query_result(self, unbuffered=False):
         self._result = None

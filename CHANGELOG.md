@@ -4,6 +4,12 @@
 
 ### 0.2.15
 
+- Fix `read_timeout` losing data, EOF, or error notifications when the transport callback
+  runs before the read waiter is registered, notably on Python 3.9/3.10 (#155).
+- Close the in-flight connection when `Pool.wait_closed()` is cancelled, and serialize
+  concurrent drainers so shutdown cannot report completion before connections close (#156).
+- Raise DBAPI `OperationalError` for writes to closed transports (including uvloop) so
+  SQLAlchemy's `pool_pre_ping` can recognize the disconnect and replace the connection (#158).
 - Fix `Pool.wait_closed()` blocking forever when the last connection was released while inside a
   transaction or after disconnecting, and notify pool waiters when a pool-filling `connect()`
   raises (#154).

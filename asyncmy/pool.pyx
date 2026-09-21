@@ -103,19 +103,27 @@ class Pool(asyncio.AbstractServer):
         if not self._closing:
             raise RuntimeError(".wait_closed() should be called " "after .close()")
 
-        while self._free:
-            conn = self._free.popleft()
-            try:
-                await conn.ensure_closed()
-            except Exception:
-                # peer may already be gone; fall back to abrupt close
-                conn.close()
-
         async with self._cond:
-            while self.size > self.freesize:
-                await self._cond.wait()
+            # Serialize drainers so none can report closure while another is
+            # still closing a connection removed from _free.
+            while self.size:
+                while self._free:
+                    conn = self._free.popleft()
+                    try:
+                        await conn.ensure_closed()
+                    except asyncio.CancelledError:
+                        # The connection is no longer tracked by the pool.
+                        # Close it before propagating the shutdown deadline.
+                        conn.close()
+                        raise
+                    except Exception:
+                        # peer may already be gone; fall back to abrupt close
+                        conn.close()
+                if self.size:
+                    await self._cond.wait()
 
-        self._closed = True
+            self._closed = True
+            self._cond.notify_all()
 
     def acquire(self):
         """Acquire free connection from the pool."""
