@@ -145,7 +145,11 @@ class Connection:
     def last_usage(self):
         """Return time() when connection was used."""
     async def ensure_closed(self) -> None:
-        """Send QUIT message and close connection."""
+        """Send QUIT message and close connection.
+
+        A peer that already closed the stream cannot receive QUIT, so the
+        connection is torn down locally instead of raising.
+        """
     async def autocommit(self, value): ...
     def get_autocommit(self) -> bool: ...
     async def begin(self) -> None:
