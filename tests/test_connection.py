@@ -152,6 +152,70 @@ def test_ping_closed_uvloop_transport(reconnect):
 
 
 @pytest.mark.asyncio
+async def test_ensure_closed_skips_quit_on_closing_transport(mocker):
+    conn = Connection()
+    transport = mocker.Mock(spec=asyncio.Transport)
+    transport.is_closing.return_value = True
+    conn._transport = transport
+    conn._connected = True
+
+    await conn.ensure_closed()
+
+    transport.write.assert_not_called()
+    transport.close.assert_called_once()
+    assert conn._transport is None
+    assert not conn.connected
+
+
+@pytest.mark.asyncio
+async def test_ensure_closed_tolerates_quit_write_failure(mocker):
+    conn = Connection()
+    transport = mocker.Mock(spec=asyncio.Transport)
+    transport.is_closing.return_value = False
+    conn._transport = transport
+    conn._connected = True
+
+    def fail_write(data):
+        transport.is_closing.return_value = True
+        raise RuntimeError("write failed")
+
+    transport.write.side_effect = fail_write
+
+    await conn.ensure_closed()
+
+    transport.close.assert_called_once()
+    assert conn._transport is None
+    assert not conn.connected
+
+
+@pytest.mark.parametrize("use_uvloop", [False, True])
+def test_ensure_closed_after_transport_closed(use_uvloop):
+    if use_uvloop:
+        uvloop = pytest.importorskip("uvloop")
+        loop = uvloop.new_event_loop()
+    else:
+        loop = asyncio.new_event_loop()
+
+    async def check():
+        conn = Connection(**connection_kwargs)
+        await conn.connect()
+        transport = conn._transport
+        transport.close()
+        await conn._proto.wait_closed()
+        assert transport.is_closing()
+
+        await conn.ensure_closed()
+
+        assert not conn.connected
+        assert conn._transport is None
+
+    try:
+        loop.run_until_complete(check())
+    finally:
+        loop.close()
+
+
+@pytest.mark.asyncio
 async def test_ssl_true_builds_a_context():
     """`ssl=True` must actually enable TLS, not silently fall back to plaintext."""
     connection = Connection(ssl=True)

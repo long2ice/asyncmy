@@ -609,13 +609,22 @@ class Connection:
         return self._last_usage
 
     async def ensure_closed(self):
-        """Send QUIT message and close connection."""
-        if self._connected and self._transport is not None:
+        """Send QUIT message and close connection.
+
+        A peer that already closed the stream cannot receive QUIT, so the
+        connection is torn down locally instead of raising.
+        """
+        transport = self._transport
+        if self._connected and transport is not None and not transport.is_closing():
             send_data = i.pack(1) + B.pack(COM_QUIT)
-            self._write_bytes(send_data)
-            await self._proto.drain()
-            self._transport.close()
-            await self._proto.wait_closed()
+            try:
+                self._write_bytes(send_data)
+                await self._proto.drain()
+            except errors.OperationalError:
+                pass  # _write_bytes already tore the stream down
+            else:
+                transport.close()
+                await self._proto.wait_closed()
         self.close()
         self._connected = False
 
