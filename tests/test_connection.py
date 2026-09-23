@@ -152,40 +152,36 @@ def test_ping_closed_uvloop_transport(reconnect):
 
 
 @pytest.mark.asyncio
-async def test_ensure_closed_skips_quit_on_closing_transport(mocker):
+@pytest.mark.parametrize("failure", ["closing", "oserror", "closed_runtime", "unrelated_runtime"])
+async def test_ensure_closed_write_errors(mocker, failure):
     conn = Connection()
     transport = mocker.Mock(spec=asyncio.Transport)
-    transport.is_closing.return_value = True
+    transport.is_closing.return_value = failure == "closing"
     conn._transport = transport
     conn._connected = True
-
-    await conn.ensure_closed()
-
-    transport.write.assert_not_called()
-    transport.close.assert_called_once()
-    assert conn._transport is None
-    assert not conn.connected
-
-
-@pytest.mark.asyncio
-async def test_ensure_closed_tolerates_quit_write_failure(mocker):
-    conn = Connection()
-    transport = mocker.Mock(spec=asyncio.Transport)
-    transport.is_closing.return_value = False
-    conn._transport = transport
-    conn._connected = True
+    error = BrokenPipeError("broken pipe") if failure == "oserror" else RuntimeError("write failed")
 
     def fail_write(data):
-        transport.is_closing.return_value = True
-        raise RuntimeError("write failed")
+        if failure == "closed_runtime":
+            transport.is_closing.return_value = True
+        raise error
 
     transport.write.side_effect = fail_write
-
-    await conn.ensure_closed()
-
-    transport.close.assert_called_once()
-    assert conn._transport is None
-    assert not conn.connected
+    try:
+        if failure == "unrelated_runtime":
+            with pytest.raises(RuntimeError) as caught:
+                await conn.ensure_closed()
+            assert caught.value is error
+            transport.close.assert_not_called()
+        else:
+            await conn.ensure_closed()
+            if failure == "closing":
+                transport.write.assert_not_called()
+            transport.close.assert_called_once()
+            assert conn._transport is None
+            assert not conn.connected
+    finally:
+        conn.close()
 
 
 @pytest.mark.parametrize("use_uvloop", [False, True])
@@ -199,15 +195,16 @@ def test_ensure_closed_after_transport_closed(use_uvloop):
     async def check():
         conn = Connection(**connection_kwargs)
         await conn.connect()
-        transport = conn._transport
-        transport.close()
-        await conn._proto.wait_closed()
-        assert transport.is_closing()
-
-        await conn.ensure_closed()
-
-        assert not conn.connected
-        assert conn._transport is None
+        try:
+            transport = conn._transport
+            transport.close()
+            await conn._proto.wait_closed()
+            assert transport.is_closing()
+            await conn.ensure_closed()
+            assert not conn.connected
+            assert conn._transport is None
+        finally:
+            await conn.ensure_closed()
 
     try:
         loop.run_until_complete(check())
