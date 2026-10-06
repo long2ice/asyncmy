@@ -127,7 +127,7 @@ cdef class Cursor:
         if not self._executed:
             raise errors.ProgrammingError("execute() first")
 
-    cdef _conv_row(self, row):
+    cpdef _conv_row(self, row):
         return row
 
     def setinputsizes(self, *args):
@@ -590,7 +590,7 @@ cdef class SSCursor(Cursor):
     possible to scroll backwards, as only the current row is held in memory.
     """
 
-    cdef _conv_row(self, row):
+    cpdef _conv_row(self, row):
         return row
 
     async def close(self):

@@ -7,6 +7,9 @@
 - Make `Connection.ensure_closed()` tear the connection down locally instead of raising
   `OperationalError(2006)` when the server already closed the stream, so pool invalidation of a
   dead connection (e.g. SQLAlchemy `do_terminate`) no longer fails.
+- Fix `SSDictCursor` returning plain tuples instead of dicts: `SSCursor.read_next()` called the
+  `cdef` `_conv_row` through the C vtable, which a Python subclass cannot override, so
+  `DictCursorMixin._conv_row` was never reached.
 
 ### 0.2.15
 

@@ -4,7 +4,7 @@ from enum import Enum
 
 import pytest
 
-from asyncmy.cursors import DictCursor, RE_INSERT_VALUES
+from asyncmy.cursors import DictCursor, RE_INSERT_VALUES, SSDictCursor
 
 
 @pytest.mark.asyncio
@@ -29,6 +29,24 @@ async def test_dict_cursor(connection):
         await cursor.execute("SELECT 1")
         ret = await cursor.fetchall()
         assert ret == [{"1": 1}]
+
+
+@pytest.mark.asyncio
+async def test_ss_dict_cursor(connection):
+    query = "SELECT 1 AS a, 'x' AS b UNION ALL SELECT 2, 'y' UNION ALL SELECT 3, 'z'"
+    async with connection.cursor(cursor=SSDictCursor) as cursor:
+        await cursor.execute(query)
+        assert await cursor.fetchone() == {"a": 1, "b": "x"}
+        assert await cursor.fetchmany(1) == [{"a": 2, "b": "y"}]
+        assert await cursor.fetchall() == [{"a": 3, "b": "z"}]
+        assert await cursor.fetchone() is None
+
+        await cursor.execute(query)
+        assert [row async for row in cursor] == [
+            {"a": 1, "b": "x"},
+            {"a": 2, "b": "y"},
+            {"a": 3, "b": "z"},
+        ]
 
 
 @pytest.mark.asyncio
