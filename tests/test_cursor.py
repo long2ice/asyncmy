@@ -1,10 +1,11 @@
 import datetime
+from collections import OrderedDict
 from decimal import Decimal
 from enum import Enum
 
 import pytest
 
-from asyncmy.cursors import DictCursor, RE_INSERT_VALUES
+from asyncmy.cursors import DictCursor, RE_INSERT_VALUES, SSDictCursor
 
 
 @pytest.mark.asyncio
@@ -29,6 +30,42 @@ async def test_dict_cursor(connection):
         await cursor.execute("SELECT 1")
         ret = await cursor.fetchall()
         assert ret == [{"1": 1}]
+
+
+class OrderedSSDictCursor(SSDictCursor):
+    dict_type = OrderedDict
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [SSDictCursor, OrderedSSDictCursor])
+async def test_ss_dict_cursor(connection, cursor_class):
+    query = "SELECT 1 AS a, 'x' AS b UNION ALL SELECT 2, 'y' UNION ALL SELECT 3, 'z'"
+    async with connection.cursor(cursor=cursor_class) as cursor:
+        await cursor.execute(query)
+        row = await cursor.fetchone()
+        assert row == {"a": 1, "b": "x"}
+        assert type(row) is cursor_class.dict_type
+        rows = await cursor.fetchmany(1)
+        assert rows == [{"a": 2, "b": "y"}]
+        assert type(rows[0]) is cursor_class.dict_type
+        rows = await cursor.fetchall()
+        assert rows == [{"a": 3, "b": "z"}]
+        assert type(rows[0]) is cursor_class.dict_type
+        assert await cursor.fetchone() is None
+
+        await cursor.execute(query)
+        rows = [row async for row in cursor]
+        assert rows == [
+            {"a": 1, "b": "x"},
+            {"a": 2, "b": "y"},
+            {"a": 3, "b": "z"},
+        ]
+        assert all(type(row) is cursor_class.dict_type for row in rows)
+
+        await cursor.execute("SELECT 1 AS a WHERE 1=0")
+        assert await cursor.fetchone() is None
+        assert await cursor.fetchmany(1) == []
+        assert await cursor.fetchall() == []
 
 
 @pytest.mark.asyncio
