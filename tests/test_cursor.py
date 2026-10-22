@@ -1,11 +1,15 @@
+import asyncio
 import datetime
+import gc
 from collections import OrderedDict
 from decimal import Decimal
 from enum import Enum
 
 import pytest
 
-from asyncmy.cursors import DictCursor, RE_INSERT_VALUES, SSDictCursor
+import asyncmy
+from asyncmy.cursors import DictCursor, RE_INSERT_VALUES, SSCursor, SSDictCursor
+from conftest import connection_kwargs
 
 
 @pytest.mark.asyncio
@@ -232,3 +236,96 @@ async def test_awaited_cursor_honours_cursor_class(connection):
     await cursor.execute("SELECT 1 AS one")
     assert await cursor.fetchone() == {"one": 1}
     await cursor.close()
+
+
+def _streaming_query():
+    # 4096 rows / 4 MiB per result, without server-specific sequence tables.
+    numbers = "(SELECT 0 AS n" + "".join(f" UNION ALL SELECT {n}" for n in range(1, 16)) + ")"
+    return (
+        "SELECT a.n + 16*b.n + 256*c.n + 1 AS seq, REPEAT('x', 1024) AS payload FROM "
+        f"{numbers} a CROSS JOIN {numbers} b CROSS JOIN {numbers} c ORDER BY seq"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_class", [SSCursor, SSDictCursor])
+@pytest.mark.parametrize("tail", ["SELECT 99", "DO 0; SELECT 99 WHERE 0; SELECT 99"])
+async def test_streaming_close_drains_all_results(cursor_class, tail, recwarn):
+    conn = await asyncmy.connect(**connection_kwargs)
+    try:
+        cursor = conn.cursor(cursor_class)
+        await cursor.execute(f"{_streaming_query()}; {_streaming_query()}; {tail}")
+        assert await cursor.fetchone() is not None
+        await cursor.close()
+        await cursor.close()
+
+        async with conn.cursor() as next_cursor:
+            await next_cursor.execute("SELECT CONNECTION_ID(), 42")
+            assert await next_cursor.fetchone() == (conn.thread_id(), 42)
+        assert not recwarn.list
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fetch_first", [False, True])
+async def test_streaming_nextset_discards_unread_rows(fetch_first):
+    conn = await asyncmy.connect(**connection_kwargs)
+    try:
+        async with conn.cursor(SSCursor) as cursor:
+            await cursor.execute(f"{_streaming_query()}; SELECT 42")
+            if fetch_first:
+                assert await cursor.fetchone() == (1, "x" * 1024)
+            assert await cursor.nextset()
+            assert await cursor.fetchone() == (42,)
+            assert await cursor.nextset() is None
+
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT 43")
+            assert await cursor.fetchone() == (43,)
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("additional_results", [False, True])
+async def test_new_command_drains_unfinished_stream(additional_results):
+    conn = await asyncmy.connect(**connection_kwargs)
+    try:
+        stream = conn.cursor(SSCursor)
+        query = _streaming_query()
+        if additional_results:
+            query += f"; {_streaming_query()}; SELECT 99"
+        await stream.execute(query)
+        assert await stream.fetchone() == (1, "x" * 1024)
+        async with conn.cursor() as cursor:
+            with pytest.warns(UserWarning, match="Previous unbuffered result was left incomplete"):
+                await cursor.execute("SELECT 42")
+            assert await cursor.fetchone() == (42,)
+            # A stale cursor must not consume another cursor's result.
+            await stream.close()
+            await cursor.execute("SELECT 43")
+            assert await cursor.fetchone() == (43,)
+    finally:
+        conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_connection", [False, True])
+async def test_unfinished_stream_finalization(close_connection, recwarn):
+    conn = await asyncmy.connect(**connection_kwargs)
+    transport = conn._transport
+    protocol = conn._proto
+    try:
+        stream = conn.cursor(SSCursor)
+        await stream.execute(_streaming_query())
+        assert await stream.fetchone() == (1, "x" * 1024)
+        if close_connection:
+            conn.close()
+        del stream, conn
+        gc.collect()
+        assert transport.is_closing()
+        await asyncio.wait_for(protocol.wait_closed(), timeout=5)
+        assert not recwarn.list
+    finally:
+        transport.close()
