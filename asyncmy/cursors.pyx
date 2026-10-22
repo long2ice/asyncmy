@@ -4,12 +4,15 @@
 # charset tables, escape table) is built during import and read-only after;
 # per-connection state lives on the instances. It does NOT make a single
 # Connection/Cursor safe to share between threads.
+cimport cython
 import logging
+import operator
 import re
 import time
 import typing
 
 from . import errors
+from .connection cimport _ConnectionState
 
 #: Regular expression for :meth:`Cursor.executemany`.
 #: executemany only supports simple bulk insert.
@@ -30,6 +33,7 @@ def _already_resolved(obj):
     return obj
     yield  # noqa: unreachable - makes this a generator function
 
+@cython.freelist(64)
 cdef class Cursor:
     """
     This is the object used to interact with the database.
@@ -91,8 +95,9 @@ cdef class Cursor:
         if conn is None:
             return
         try:
-            while await self.nextset():
-                pass
+            if self._needs_nextset():
+                while await self.nextset():
+                    pass
         finally:
             self.connection = None
 
@@ -109,7 +114,10 @@ cdef class Cursor:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
+        if type(self) is Cursor and not self._needs_nextset():
+            self.connection = None
+        else:
+            await self.close()
 
     async def __anext__(self):
         ret = await self.fetchone()
@@ -126,6 +134,41 @@ cdef class Cursor:
     cdef _check_executed(self):
         if not self._executed:
             raise errors.ProgrammingError("execute() first")
+
+    cdef inline bint _needs_nextset(self):
+        # Subclasses can override nextset(), including unbuffered cursors
+        # whose unread rows must be drained before checking has_next.
+        if type(self) is not Cursor:
+            return True
+        result = self._result
+        return (
+            result is not None
+            and self.connection is not None
+            and result is self.connection._result
+            and result.has_next
+        )
+
+    cdef _set_result(self, result):
+        self._result = result
+        self.rowcount = result.affected_rows
+        self.description = result.description
+        self.lastrowid = result.insert_id
+        self._rows = result.rows
+
+    cdef inline bint _get_result_now(self, _ConnectionState conn):
+        # Preserve asynchronous hooks for warning handling and subclasses.
+        if type(self) is Cursor and not conn._result.warning_count:
+            self._set_result(conn._result)
+            return True
+        return False
+
+    cpdef _set_cached_rows(self, tuple rows, tuple description):
+        self._result = None
+        self._rows = rows
+        self.description = description
+        self.rowcount = len(rows)
+        self.rownumber = 0
+        self.lastrowid = 0
 
     cpdef _conv_row(self, row):
         return row
@@ -212,8 +255,10 @@ cdef class Cursor:
         If args is a list or tuple, %s can be used as a placeholder in the query.
         If args is a dict, %(name)s can be used as a placeholder in the query.
         """
-        while await self.nextset():
-            pass
+        cdef _ConnectionState conn
+        if self._needs_nextset():
+            while await self.nextset():
+                pass
 
         conn = self._get_db()
         # Transparent binary-protocol path: when the connection has a
@@ -224,17 +269,32 @@ cdef class Cursor:
             and conn._stmt_cache_size > 0
             and type(query) is str
             and not isinstance(args, dict)
+            and not isinstance(self, SSCursor)
         ):
             stmt_args = args if isinstance(args, (tuple, list)) else (args,)
-            stmt = await conn._acquire_cached_statement(query, len(stmt_args))
+            cache = conn._stmt_cache
+            stmt = cache.get(query)
+            if stmt is not None:
+                if len(cache) > 1:
+                    del cache[query]
+                    cache[query] = stmt
+                if stmt.parameter_count != len(stmt_args):
+                    stmt = None
+            else:
+                stmt = await conn._acquire_cached_statement(query, len(stmt_args))
             if stmt is not None:
                 observed = self._observed()
                 if observed:
                     start = time.time()
                 self._clear_result()
-                await stmt.execute(stmt_args)
+                ready = False
+                if type(self) is Cursor:
+                    ready = await stmt._execute_cursor(stmt_args, self)
+                else:
+                    await stmt.execute(stmt_args)
                 self._executed = query
-                await self._do_get_result()
+                if not ready and not self._get_result_now(conn):
+                    await self._do_get_result()
                 if observed:
                     self._report(query, start)
                 return self.rowcount
@@ -492,7 +552,8 @@ cdef class Cursor:
         conn = self._get_db()
         self._clear_result()
         await conn.query(q)
-        await self._do_get_result()
+        if not self._get_result_now(conn):
+            await self._do_get_result()
         return self.rowcount
 
     cpdef _clear_result(self):
@@ -505,11 +566,8 @@ cdef class Cursor:
 
     async def _do_get_result(self):
         conn = self._get_db()
-        self._result = result = conn._result
-        self.rowcount = result.affected_rows
-        self.description = result.description
-        self.lastrowid = result.insert_id
-        self._rows = result.rows
+        result = conn._result
+        self._set_result(result)
         if result.warning_count > 0:
             await self._show_warnings(conn)
 
@@ -637,12 +695,17 @@ cdef class SSCursor(Cursor):
         it is buffered. See fetchall_unbuffered(), if you want an unbuffered
         generator version of this method.
         """
+        cdef bint bulk = type(self) is SSCursor
         rows = []
         while True:
             row = await self.fetchone()
             if row is None:
                 break
             rows.append(row)
+            if bulk:
+                pending = self._result._take_pending_rows()
+                rows.extend(pending)
+                self.rownumber += len(pending)
         return rows
 
     async def fetchmany(self, size=None):
@@ -650,8 +713,23 @@ cdef class SSCursor(Cursor):
         self._check_executed()
         if size is None:
             size = self.arraysize
+        size = operator.index(size)
 
         rows = []
+        if type(self) is SSCursor and size > 1:
+            while len(rows) < size:
+                row = await self.read_next()
+                if row is None:
+                    break
+                rows.append(row)
+                self.rownumber += 1
+                pending = self._result._take_pending_rows(size - len(rows))
+                rows.extend(pending)
+                self.rownumber += len(pending)
+            return rows
+
+        # Subclasses may override read_next() or _conv_row(). Keep invoking
+        # those hooks once per row, including custom dictionary cursors.
         for i in range(size):
             row = await self.read_next()
             if row is None:

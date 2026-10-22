@@ -72,11 +72,11 @@ class _PoolContextManager(_ContextManager[_T]):
 
 
 class _PoolAcquireContextManager(_ContextManager[_T]):
-    __slots__ = ("_coro", "_conn", "_pool")
+    __slots__ = ("_conn", "_pool")
 
     def __init__(self, coro, pool) -> None:
-        super().__init__(coro)
         self._coro = coro
+        self._obj = None
         self._conn: Any = None
         self._pool = pool
 

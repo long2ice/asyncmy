@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mysql_async = { version = "0.36", features = ["time"] }
+mysql_async = { version = "0.37.1", features = ["time"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 time = "0.3"
 

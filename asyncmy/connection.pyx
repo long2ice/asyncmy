@@ -9,6 +9,7 @@
 # Error codes:
 # https://dev.mysql.com/doc/refman/5.5/en/error-handling.html
 import asyncio
+cimport cython
 import errno
 import inspect
 import os
@@ -18,17 +19,21 @@ import warnings
 from typing import Optional, Type
 
 from cpython.bytearray cimport PyByteArray_AS_STRING
-from cpython.bytes cimport PyBytes_FromStringAndSize
+from cpython.bytes cimport PyBytes_FromStringAndSize, PyBytes_AS_STRING
+from cpython.object cimport PyObject_GenericGetDict
+from libc.string cimport memcpy
 
 from asyncmy import auth, converters, errors
+from asyncmy._compat cimport _class_method_is
 from asyncmy.charset import charset_by_id, charset_by_name
 from asyncmy.cursors import Cursor
 from asyncmy.optionfile import Parser
 from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               LoadLocalPacketWrapper, MysqlPacket,
-                              OKPacketWrapper, pack_binary_params,
+                              OKPacketWrapper,
                               pack_bulk_rows, parse_binary_rows_from_buffer,
                               parse_rows_from_buffer, skip_packets_from_buffer)
+from asyncmy.protocol cimport _send_scalar_execute, _parse_cached_binary_response, pack_binary_params, _pack_execute_packet
 
 from .constants.CLIENT import (CAPABILITIES, CONNECT_ATTRS, CONNECT_WITH_DB,
                                DEPRECATE_EOF, LOCAL_FILES, MULTI_RESULTS,
@@ -161,7 +166,21 @@ cdef _lenenc_int(int i):
         )
 
 
-class _MySQLProtocol(asyncio.BufferedProtocol):
+cdef class _ProtocolState:
+    pass
+
+
+
+cdef inline _ProtocolState _get_protocol_state(_ConnectionState conn):
+    if conn is None:
+        raise errors.InterfaceError(0, "Not connected")
+    cdef _ProtocolState proto = conn._proto
+    if proto is None:
+        raise errors.InterfaceError(0, "Not connected")
+    return proto
+
+
+class _MySQLProtocol(_ProtocolState, asyncio.BufferedProtocol):
     """Receive-side transport protocol.
 
     Incoming bytes land directly in ``buffer`` (the parse buffer) via the
@@ -190,37 +209,41 @@ class _MySQLProtocol(asyncio.BufferedProtocol):
         self.transport = transport
 
     def get_buffer(self, sizehint):
-        buffer = self.buffer
-        length = self.length
-        pos = self.pos
+        cdef _ProtocolState state = self
+        cdef bytearray buffer = state.buffer
+        cdef Py_ssize_t length = state.length, pos = state.pos, grow
         if pos:
             # compact the consumed prefix
             if length > pos:
                 buffer[0: length - pos] = buffer[pos:length]
             length -= pos
-            self.length = length
-            self.pos = 0
+            state.length = length
+            state.pos = 0
         if length == 0 and len(buffer) > (READ_CHUNK_SIZE << 2):
             # shrink an oversized buffer left over from a huge result set
-            self.buffer = buffer = bytearray(READ_CHUNK_SIZE)
+            state.buffer = buffer = bytearray(READ_CHUNK_SIZE)
         elif len(buffer) - length < 4096:
             # grow geometrically so huge packets stay O(n)
             grow = len(buffer)
             if sizehint > 0 and sizehint > grow:
                 grow = sizehint
             buffer.extend(bytes(grow))
-        return memoryview(buffer)[length:]
+        return memoryview(buffer)[length:] if length else buffer
 
+    @cython.locals(self=_ProtocolState)
     def buffer_updated(self, nbytes):
-        self.length += nbytes
+        cdef _ProtocolState state = self
+        state.length += nbytes
         waiter = self._read_waiter
         if waiter is not None:
             self._read_waiter = None
             if not waiter.done():
                 waiter.set_result(None)
 
+    @cython.locals(self=_ProtocolState)
     def eof_received(self):
-        self.eof = True
+        cdef _ProtocolState state = self
+        state.eof = True
         waiter = self._read_waiter
         if waiter is not None:
             self._read_waiter = None
@@ -228,10 +251,12 @@ class _MySQLProtocol(asyncio.BufferedProtocol):
                 waiter.set_result(None)
         return False
 
+    @cython.locals(self=_ProtocolState)
     def connection_lost(self, exc):
-        self.eof = True
+        cdef _ProtocolState state = self
+        state.eof = True
         if exc is not None:
-            self.exc = exc
+            state.exc = exc
         self.transport = None
         for waiter in (self._read_waiter, self._drain_waiter):
             if waiter is not None and not waiter.done():
@@ -259,7 +284,8 @@ class _MySQLProtocol(asyncio.BufferedProtocol):
         # wait_for() may schedule this coroutine after the transport callback.
         # Recheck the read predicate before registering a waiter so that data,
         # EOF, or errors delivered in that gap cannot lose their notification.
-        if self.length - self.pos >= need or self.eof or self.exc is not None:
+        cdef _ProtocolState state = self
+        if state.length - state.pos >= need or state.eof or state.exc is not None:
             return
         waiter = self._loop.create_future()
         self._read_waiter = waiter
@@ -279,7 +305,12 @@ class _MySQLProtocol(asyncio.BufferedProtocol):
         await self._closed_waiter
 
 
-class Connection:
+cdef class _ConnectionState:
+    pass
+
+
+
+class Connection(_ConnectionState):
     """
     Representation of a socket with a mysql server.
 
@@ -355,6 +386,7 @@ class Connection:
     specification.
     """
 
+    @cython.locals(self=_ConnectionState)
     def __init__(
             self,
             *,
@@ -532,6 +564,7 @@ class Connection:
 
         self._auth_plugin_name = ""
 
+    @cython.locals(self=_ConnectionState)
     def _create_ssl_ctx(self, sslp):
         if isinstance(sslp, ssl.SSLContext):
             return sslp
@@ -576,18 +609,26 @@ class Connection:
         return ctx
 
 
+    @cython.locals(self=_ConnectionState)
     def close(self):
         """Close socket connection"""
         if self._transport is not None:
             self._transport.close()
         self._transport = None
+        self._connected = False
 
     @property
+    @cython.locals(self=_ConnectionState)
     def _stream_broken(self):
         """True when the underlying stream can no longer be used."""
-        proto = self._proto
-        return proto is None or proto.eof or proto.exc is not None
+        cdef _ProtocolState proto = self._proto
+        transport = self._transport
+        return (
+            transport is None or transport.is_closing()
+            or proto is None or proto.eof or proto.exc is not None
+        )
 
+    @cython.locals(self=_ConnectionState)
     def _close_on_cancel(self):
         """Close the connection after a cancelled read left it desynced."""
         self.close()
@@ -595,19 +636,23 @@ class Connection:
         self._connected = False
 
     @property
+    @cython.locals(self=_ConnectionState)
     def connected(self):
         """Return True if the connection is open."""
         return self._connected
 
     @property
+    @cython.locals(self=_ConnectionState)
     def loop(self):
         return self._loop
 
     @property
+    @cython.locals(self=_ConnectionState)
     def last_usage(self):
         """Return time() when connection was used."""
         return self._last_usage
 
+    @cython.locals(self=_ConnectionState)
     async def ensure_closed(self):
         """Send QUIT message and close connection.
 
@@ -628,15 +673,18 @@ class Connection:
         self.close()
         self._connected = False
 
+    @cython.locals(self=_ConnectionState)
     async def autocommit(self, value):
         self.autocommit_mode = bool(value)
         current = self.get_autocommit()
         if value != current:
             await self._send_autocommit_mode()
 
+    @cython.locals(self=_ConnectionState)
     def get_autocommit(self):
         return bool(self.server_status & SERVER_STATUS_AUTOCOMMIT)
 
+    @cython.locals(self=_ConnectionState)
     async def _read_ok_packet(self):
         pkt = await self.read_packet()
         if not pkt.is_ok_packet():
@@ -645,6 +693,7 @@ class Connection:
         self.server_status = ok.server_status
         return ok
 
+    @cython.locals(self=_ConnectionState)
     async def _send_autocommit_mode(self):
         """Set whether or not to commit after every execute()."""
         await self._execute_command(
@@ -652,11 +701,13 @@ class Connection:
         )
         await self._read_ok_packet()
 
+    @cython.locals(self=_ConnectionState)
     async def begin(self):
         """Begin transaction."""
         await self._execute_command(COM_QUERY, "BEGIN")
         await self._read_ok_packet()
 
+    @cython.locals(self=_ConnectionState)
     async def commit(self):
         """
         Commit changes to stable storage.
@@ -667,6 +718,7 @@ class Connection:
         await self._execute_command(COM_QUERY, "COMMIT")
         await self._read_ok_packet()
 
+    @cython.locals(self=_ConnectionState)
     async def rollback(self):
         """
         Roll back the current transaction.
@@ -677,6 +729,7 @@ class Connection:
         await self._execute_command(COM_QUERY, "ROLLBACK")
         await self._read_ok_packet()
 
+    @cython.locals(self=_ConnectionState)
     async def show_warnings(self):
         """Send the "SHOW WARNINGS" SQL """
         await self._execute_command(COM_QUERY, "SHOW WARNINGS")
@@ -684,6 +737,7 @@ class Connection:
         await result.read()
         return result.rows
 
+    @cython.locals(self=_ConnectionState)
     async def select_db(self, db):
         """
         Set current db.
@@ -693,12 +747,14 @@ class Connection:
         await self._execute_command(COM_INIT_DB, db)
         await self._read_ok_packet()
 
+    @cython.locals(self=_ConnectionState)
     def _set_keep_alive(self):
         raw_sock = self._transport.get_extra_info('socket', default=None)
         if raw_sock is None:
             raise RuntimeError("Transport does not expose socket instance")
         raw_sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
 
+    @cython.locals(self=_ConnectionState)
     def _set_nodelay(self, value):
         flag = int(bool(value))
         raw_sock = self._transport.get_extra_info('socket', default=None)
@@ -706,6 +762,7 @@ class Connection:
             raise RuntimeError("Transport does not expose socket instance")
         raw_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, flag)
 
+    @cython.locals(self=_ConnectionState)
     def escape(self, obj, mapping=None):
         """Escape whatever value is passed.
 
@@ -717,6 +774,7 @@ class Connection:
             return converters.escape_bytes_prefixed(obj)
         return converters.escape_item(obj, self._charset, mapping=mapping)
 
+    @cython.locals(self=_ConnectionState)
     def literal(self, obj):
         """Alias for escape().
 
@@ -724,16 +782,19 @@ class Connection:
         """
         return self.escape(obj, self._encoders)
 
+    @cython.locals(self=_ConnectionState)
     def escape_string(self, s):
         if self.server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES:
             return s.replace("'", "''")
         return converters.escape_string(s)
 
+    @cython.locals(self=_ConnectionState)
     def _quote_bytes(self, bytes s):
         if self.server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES:
             return "'%s'" % (s.replace(b"'", b"''").decode("ascii", "surrogateescape"),)
         return converters.escape_bytes(s)
 
+    @cython.locals(self=_ConnectionState)
     def cursor(self, cursor: Optional[Type[Cursor]] = None):
         """
         Create a new cursor to execute queries with.
@@ -742,11 +803,14 @@ class Connection:
         :type cursor: :py:class:`Cursor`, :py:class:`SSCursor`, :py:class:`DictCursor`, or :py:class:`SSDictCursor`.
         """
         self._last_usage = self._loop.time()
+        if cursor is Cursor or (not cursor and self._cursor_cls is Cursor):
+            return Cursor(self, self._echo, self._query_callback)
         if cursor:
             return cursor(self, echo=self._echo, query_callback=self._query_callback)
         return self._cursor_cls(self, echo=self._echo, query_callback=self._query_callback)
 
     # The following methods are INTERNAL USE ONLY (called from Cursor)
+    @cython.locals(self=_ConnectionState)
     async def query(self, sql, unbuffered=False):
         if isinstance(sql, str):
             sql = sql.encode(self._encoding, "surrogateescape")
@@ -754,10 +818,12 @@ class Connection:
         await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
+    @cython.locals(self=_ConnectionState)
     async def next_result(self, unbuffered=False):
         await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
 
+    @cython.locals(self=_ConnectionState)
     async def prepare(self, query):
         """Create a server-side prepared statement (binary protocol).
 
@@ -787,6 +853,7 @@ class Connection:
             await self.read_packet()  # EOF
         return PreparedStatement(self, statement_id, num_params)
 
+    @cython.locals(self=_ConnectionState)
     async def _acquire_cached_statement(self, query, nargs):
         """Return a cached PreparedStatement for a pyformat query, or None.
 
@@ -797,8 +864,9 @@ class Connection:
         stmt = cache.get(query)
         if stmt is not None:
             # LRU: move to the most-recently-used end
-            del cache[query]
-            cache[query] = stmt
+            if len(cache) > 1:
+                del cache[query]
+                cache[query] = stmt
             if stmt.parameter_count != nargs:
                 return None
             return stmt
@@ -829,14 +897,17 @@ class Connection:
                 pass
         return stmt
 
+    @cython.locals(self=_ConnectionState)
     def affected_rows(self):
         return self._affected_rows
 
+    @cython.locals(self=_ConnectionState)
     async def kill(self, thread_id):
         arg = I.pack(thread_id)
         await self._execute_command(COM_PROCESS_KILL, arg)
         return await self._read_ok_packet()
 
+    @cython.locals(self=_ConnectionState)
     async def ping(self, reconnect=True):
         """
         Check if the server is alive.
@@ -864,6 +935,7 @@ class Connection:
             else:
                 raise
 
+    @cython.locals(self=_ConnectionState)
     async def set_charset(self, charset):
         # Make sure charset is supported.
         encoding = charset_by_name(charset)._encoding
@@ -873,6 +945,7 @@ class Connection:
         self._charset = charset
         self._encoding = encoding
 
+    @cython.locals(self=_ConnectionState)
     async def _refresh_password(self):
         """Ask password_creator for a fresh credential before authenticating."""
         password = self._password_creator()
@@ -891,6 +964,7 @@ class Connection:
             )
         self._password = password
 
+    @cython.locals(self=_ConnectionState)
     async def connect(self):
         if self._connected:
             return self._proto, self._transport
@@ -989,6 +1063,7 @@ class Connection:
             # So just reraise it.
             raise e
 
+    @cython.locals(self=_ConnectionState)
     def write_packet(self, bytes payload):
         """
         Writes an entire "mysql packet" in its entirety to the network
@@ -1008,9 +1083,10 @@ class Connection:
             self._write_bytes(payload)
         self._next_seq_id = (self._next_seq_id + 1) & 0xFF
 
+    @cython.locals(self=_ConnectionState)
     async def _fill_buffer(self, need):
         """Suspend until at least `need` unconsumed bytes are buffered."""
-        proto = self._proto
+        cdef _ProtocolState proto = _get_protocol_state(self)
         read_timeout = self._read_timeout
         while proto.length - proto.pos < need:
             if proto.exc is not None:
@@ -1045,6 +1121,7 @@ class Connection:
                     "Lost connection to MySQL server during query (%s)" % (e,),
                 )
 
+    @cython.locals(self=_ConnectionState)
     async def read_packet(self, packet_type=MysqlPacket):
         """
         Read an entire "mysql packet" in its entirety from the network
@@ -1053,7 +1130,10 @@ class Connection:
         :raise OperationalError: If the connection to the MySQL server is lost.
         :raise InternalError: If the packet sequence number is wrong.
         """
-        proto = self._proto
+        cdef _ProtocolState proto = _get_protocol_state(self)
+        cdef bytearray buffer
+        cdef Py_ssize_t pos, bytes_to_read
+        cdef unsigned int packet_number
         buff = None
         while True:
             if proto.length - proto.pos < 4:
@@ -1101,10 +1181,12 @@ class Connection:
             packet.raise_for_error()
         return packet
 
+    @cython.locals(self=_ConnectionState)
     async def _read_bytes(self, num_bytes: int):
         # Kept for backwards compatibility; packet reads go through the
         # protocol's receive buffer (see _fill_buffer/read_packet).
-        proto = self._proto
+        cdef _ProtocolState proto = _get_protocol_state(self)
+        cdef Py_ssize_t pos
         if proto.length - proto.pos < num_bytes:
             await self._fill_buffer(num_bytes)
         pos = proto.pos
@@ -1112,6 +1194,7 @@ class Connection:
         proto.pos = pos + num_bytes
         return data
 
+    @cython.locals(self=_ConnectionState)
     def _write_bytes(self, bytes data):
         transport = self._transport
         if transport is None or transport.is_closing():
@@ -1131,6 +1214,7 @@ class Connection:
                 CR_SERVER_GONE_ERROR, "MySQL server has gone away (%s)" % (exc,)
             ) from exc
 
+    @cython.locals(self=_ConnectionState)
     async def _read_query_result(self, unbuffered=False):
         self._result = None
         if unbuffered:
@@ -1149,21 +1233,25 @@ class Connection:
         if result.server_status != 0:
             self.server_status = result.server_status
 
+    @cython.locals(self=_ConnectionState)
     def insert_id(self):
         if self._result:
             return self._result.insert_id
         else:
             return 0
 
+    @cython.locals(self=_ConnectionState)
     async def __aenter__(self):
         return self
 
+    @cython.locals(self=_ConnectionState)
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if exc_type:
             self.close()
         else:
             await self.ensure_closed()
 
+    @cython.locals(self=_ConnectionState)
     async def _execute_command(self, command, sql):
         """
         :raise InterfaceError: If the connection is closed.
@@ -1210,6 +1298,7 @@ class Connection:
             if not sql and packet_size < MAX_PACKET_LEN:
                 break
 
+    @cython.locals(self=_ConnectionState)
     async def _request_authentication(self):
         # https://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::HandshakeResponse
         if int(self.server_version.split(".", 1)[0]) >= 5:
@@ -1352,6 +1441,7 @@ class Connection:
                 )
         return auth_packet
 
+    @cython.locals(self=_ConnectionState)
     async def _process_auth(self, plugin_name, auth_packet):
         handler = self._get_auth_plugin_handler(plugin_name)
         if handler:
@@ -1426,6 +1516,7 @@ class Connection:
         pkt.check_error()
         return pkt
 
+    @cython.locals(self=_ConnectionState)
     def _get_auth_plugin_handler(self, plugin_name):
         plugin_class = self._auth_plugin_map.get(plugin_name)
         if not plugin_class and isinstance(plugin_name, bytes):
@@ -1445,21 +1536,27 @@ class Connection:
         return handler
 
     # _mysql support
+    @cython.locals(self=_ConnectionState)
     def thread_id(self):
         return self.server_thread_id[0]
 
+    @cython.locals(self=_ConnectionState)
     def character_set_name(self):
         return self._charset
 
+    @cython.locals(self=_ConnectionState)
     def get_host_info(self):
         return self.host_info
 
+    @cython.locals(self=_ConnectionState)
     def get_proto_info(self):
         return self.protocol_version
 
+    @cython.locals(self=_ConnectionState)
     def get_transaction_status(self):
         return bool(self.server_status & SERVER_STATUS_IN_TRANS)
 
+    @cython.locals(self=_ConnectionState)
     async def _get_server_information(self):
         i = 0
         packet = await self.read_packet()
@@ -1523,6 +1620,7 @@ class Connection:
             else:
                 self._auth_plugin_name = data[i:server_end].decode("utf-8")
 
+    @cython.locals(self=_ConnectionState)
     def get_server_info(self):
         return self.server_version
 
@@ -1538,7 +1636,44 @@ class Connection:
     NotSupportedError = errors.NotSupportedError
 
 
-class PreparedStatement:
+cdef object _original_write_bytes = Connection._write_bytes
+cdef object _original_execute_command = Connection._execute_command
+
+
+cdef class _PreparedState:
+    cdef:
+        dict __dict__
+        object __weakref__
+        public _ConnectionState _connection
+        public unsigned int _statement_id
+        public Py_ssize_t _parameter_count
+        public bytes _execute_header
+        public tuple _meta
+        public bint _closed
+        object _write_transport
+        int _write_fd
+
+    cdef bytes _execute_payload(self, args):
+        args = self._bound_args(args)
+        payload = self._execute_header
+        if args:
+            payload += pack_binary_params(args, self._connection._encoding)
+        return payload
+
+    cdef tuple _bound_args(self, args):
+        conn = self._connection
+        if self._closed or conn is None:
+            raise errors.ProgrammingError("Prepared statement is closed")
+        if not isinstance(args, (tuple, list)):
+            args = (args,)
+        if len(args) != self._parameter_count:
+            raise errors.ProgrammingError(
+                "Expected %d parameters, got %d" % (self._parameter_count, len(args))
+            )
+        return tuple(args)
+
+
+class PreparedStatement(_PreparedState):
     """A server-side prepared statement (binary protocol).
 
     Created via :meth:`Connection.prepare`. Parameters are sent in binary form
@@ -1552,19 +1687,33 @@ class PreparedStatement:
     - only the first result set is returned (extra sets are drained).
     """
 
+    @cython.locals(self=_PreparedState)
     def __init__(self, connection, statement_id, parameter_count):
         self._connection = connection
         self._statement_id = statement_id
+        # statement id, cursor flag, and iteration count stay fixed on execute.
+        self._execute_header = I.pack(statement_id) + b"\x00\x01\x00\x00\x00"
         self._parameter_count = parameter_count
         self._closed = False
         # Column metadata cached from the first execute; later executes skip
         # re-parsing the (identical) column definition packets.
         self._meta = None
+        self._write_fd = -1
+        self._write_transport = connection._transport
+        if (sys.platform != "win32" and type(connection) is Connection
+                and self._write_transport is not None and not connection._ssl_context
+                and not connection._tls_established
+                and self._write_transport.get_extra_info("ssl_object") is None):
+            raw_sock = self._write_transport.get_extra_info("socket")
+            if raw_sock is not None:
+                self._write_fd = raw_sock.fileno()
 
     @property
+    @cython.locals(self=_PreparedState)
     def parameter_count(self):
         return self._parameter_count
 
+    @cython.locals(self=_PreparedState)
     async def execute(self, args=()):
         """Execute with ``args`` bound to the statement's ``?`` placeholders.
 
@@ -1573,20 +1722,112 @@ class PreparedStatement:
         ``result.description``.
         """
         conn = self._connection
-        if self._closed or conn is None:
-            raise errors.ProgrammingError("Prepared statement is closed")
-        if not isinstance(args, (tuple, list)):
-            args = (args,)
-        if len(args) != self._parameter_count:
-            raise errors.ProgrammingError(
-                "Expected %d parameters, got %d" % (self._parameter_count, len(args))
-            )
-        payload = I.pack(self._statement_id) + b"\x00" + I.pack(1)
-        if self._parameter_count:
-            payload += pack_binary_params(tuple(args), conn._encoding)
+        payload = self._execute_payload(args)
         await conn._execute_command(COM_STMT_EXECUTE, payload)
         result = MySQLResult(conn)
         await result.read_binary(self)
+        await self._complete_result(conn, result)
+        return result
+
+    @cython.locals(self=_PreparedState)
+    async def _execute_cursor(self, args, cursor):
+        """Fill an ordinary buffered cursor without an intermediate result."""
+        cdef _ProtocolState proto
+        cdef tuple complete
+        cdef bint is_packet = False
+        if (type(self) is not PreparedStatement
+                or not _class_method_is(self, "execute", _original_statement_execute)):
+            await self.execute(args)
+            return False
+        conn = self._connection
+        args = self._bound_args(args)
+        packet = None
+        scalar_sent = False
+        if (type(conn) is Connection and conn._result is None
+                and _class_method_is(conn, "_execute_command", _original_execute_command)
+                and _class_method_is(conn, "_write_bytes", _original_write_bytes)
+                and "_execute_command" not in <dict>PyObject_GenericGetDict(conn, NULL)
+                and "_write_bytes" not in <dict>PyObject_GenericGetDict(conn, NULL)):
+            if not conn._connected:
+                raise errors.InterfaceError(0, conn._close_reason or "Not connected")
+            transport = conn._transport
+            if (self._write_fd >= 0 and transport is self._write_transport
+                    and not transport.is_closing() and transport.get_write_buffer_size() == 0):
+                remaining = _send_scalar_execute(self._execute_header, args, self._write_fd)
+                if remaining is not False:
+                    if remaining is not None:
+                        conn._write_bytes(remaining)
+                    scalar_sent = True
+                    conn._next_seq_id = 1
+            if not scalar_sent:
+                packet = _pack_execute_packet(self._execute_header, args, conn._encoding, &is_packet)
+        if scalar_sent:
+            pass
+        elif packet is not None:
+            if is_packet:
+                conn._write_bytes(packet)
+                conn._next_seq_id = 1
+            else:
+                await conn._execute_command(COM_STMT_EXECUTE, packet)
+        else:
+            await conn._execute_command(COM_STMT_EXECUTE, self._execute_payload(args))
+        meta = self._meta
+        if meta is not None:
+            proto = _get_protocol_state(conn)
+            if proto.length - proto.pos < 4:
+                if conn._read_timeout or type(conn) is not Connection:
+                    await conn._fill_buffer(4)
+                else:
+                    try:
+                        while proto.length - proto.pos < 4:
+                            if proto.eof or proto.exc is not None:
+                                await conn._fill_buffer(4)
+                            waiter = conn._loop.create_future()
+                            proto._read_waiter = waiter
+                            try:
+                                await waiter
+                            finally:
+                                if proto._read_waiter is waiter:
+                                    proto._read_waiter = None
+                    except asyncio.CancelledError:
+                        conn._close_on_cancel()
+                        raise
+            complete = _parse_cached_binary_response(
+                proto.buffer, proto.pos, proto.length, conn._next_seq_id,
+                meta[0], meta[4], conn._deprecate_eof, meta[6],
+            )
+            if complete is not None:
+                proto.pos = complete[0]
+                conn._next_seq_id = complete[1]
+                if not complete[4] and not complete[5]:
+                    cursor._set_cached_rows(complete[2], meta[5])
+                    conn._result = None
+                    conn._affected_rows = len(complete[2])
+                    if complete[3]:
+                        conn.server_status = complete[3]
+                    return True
+                result = MySQLResult(conn)
+                result.field_count = meta[0]
+                result.fields = meta[1]
+                result.converters = meta[2]
+                result._row_converters = meta[3]
+                result._binary_colspecs = meta[4]
+                result.description = meta[5]
+                result.rows = complete[2]
+                result.affected_rows = len(result.rows)
+                result.server_status = complete[3]
+                result.warning_count = complete[4]
+                result.has_next = complete[5]
+                result.connection = None
+                await self._complete_result(conn, result)
+                return False
+        result = MySQLResult(conn)
+        await result.read_binary(self)
+        await self._complete_result(conn, result)
+        return False
+
+    @cython.locals(self=_PreparedState)
+    async def _complete_result(self, conn, MySQLResult result):
         has_next = result.has_next
         while has_next:  # drain extra result sets (e.g. from stored procedures)
             extra = MySQLResult(conn)
@@ -1597,8 +1838,8 @@ class PreparedStatement:
         conn._affected_rows = result.affected_rows
         if result.server_status != 0:
             conn.server_status = result.server_status
-        return result
 
+    @cython.locals(self=_PreparedState)
     async def execute_bulk(self, rows):
         """MariaDB COM_STMT_BULK_EXECUTE: bind many rows in one round-trip.
 
@@ -1628,6 +1869,7 @@ class PreparedStatement:
             conn.server_status = result.server_status
         return result
 
+    @cython.locals(self=_PreparedState)
     async def close(self):
         """Deallocate the statement on the server (no server response)."""
         if self._closed:
@@ -1635,30 +1877,25 @@ class PreparedStatement:
         self._closed = True
         conn = self._connection
         self._connection = None
+        self._write_fd = -1
+        self._write_transport = None
         if conn is not None and conn.connected:
             await conn._execute_command(COM_STMT_CLOSE, I.pack(self._statement_id))
 
+    @cython.locals(self=_PreparedState)
     async def __aenter__(self):
         return self
 
+    @cython.locals(self=_PreparedState)
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.close()
 
 
+cdef object _original_statement_execute = PreparedStatement.execute
+
+
 cdef class MySQLResult:
-    cdef:
-        public connection
-        public bytes message
-        public int warning_count, field_count, server_status, unbuffered_active, has_next
-        public object affected_rows
-        public list fields, converters
-        public unsigned long long insert_id
-        public tuple rows, description
-        tuple _row_converters
-        tuple _binary_colspecs
-        list _pending_rows
-        Py_ssize_t _pending_idx
-        bint _deprecate_eof
+
 
     def __init__(self, connection: Connection):
         self.connection = connection
@@ -1695,26 +1932,50 @@ cdef class MySQLResult:
 
     async def read_binary(self, stmt=None):
         """Read a COM_STMT_EXECUTE response (binary protocol result set)."""
+        cdef _ProtocolState proto
+        cdef tuple complete
         try:
+            meta = stmt._meta if stmt is not None else None
+            if meta is not None:
+                conn = self.connection
+                proto = _get_protocol_state(conn)
+                if proto.length - proto.pos < 4:
+                    await conn._fill_buffer(4)
+                complete = _parse_cached_binary_response(
+                    proto.buffer, proto.pos, proto.length, conn._next_seq_id,
+                    meta[0], meta[4], self._deprecate_eof, meta[6],
+                )
+                if complete is not None:
+                    proto.pos = complete[0]
+                    conn._next_seq_id = complete[1]
+                    self.field_count = meta[0]
+                    self.fields = meta[1]
+                    self.converters = meta[2]
+                    self._row_converters = meta[3]
+                    self._binary_colspecs = meta[4]
+                    self.description = meta[5]
+                    self.rows = complete[2]
+                    self.affected_rows = len(self.rows)
+                    self.server_status = complete[3]
+                    self.warning_count = complete[4]
+                    self.has_next = complete[5]
+                    return
             first_packet = await self.connection.read_packet()
             if first_packet.is_ok_packet():
                 self._read_ok_packet(first_packet)
             else:
                 self.field_count = first_packet.read_length_encoded_integer()
-                meta = stmt._meta if stmt is not None else None
-                if meta is not None and meta[0] == self.field_count:
-                    await self._consume_descriptions(meta)
-                else:
-                    await self._get_descriptions()
-                    if stmt is not None:
-                        stmt._meta = (
-                            self.field_count,
-                            self.fields,
-                            self.converters,
-                            self._row_converters,
-                            self._binary_colspecs,
-                            self.description,
-                        )
+                await self._get_descriptions()
+                if stmt is not None:
+                    stmt._meta = (
+                        self.field_count,
+                        self.fields,
+                        self.converters,
+                        self._row_converters,
+                        self._binary_colspecs,
+                        self.description,
+                        tuple(field.get_all_data() for field in self.fields),
+                    )
                 await self._read_binary_rowdata_packet()
         finally:
             self.connection = None
@@ -1724,7 +1985,7 @@ cdef class MySQLResult:
         # column definitions, plus a trailing EOF unless DEPRECATE_EOF is on
         cdef Py_ssize_t remaining = self.field_count + (0 if self._deprecate_eof else 1)
         conn = self.connection
-        proto = conn._proto
+        cdef _ProtocolState proto = _get_protocol_state(conn)
         while remaining:
             new_pos, new_seq, skipped = skip_packets_from_buffer(
                 proto.buffer, proto.pos, proto.length, conn._next_seq_id, remaining
@@ -1746,7 +2007,7 @@ cdef class MySQLResult:
         cdef list rows = []
         cdef tuple specs = self._binary_colspecs
         conn = self.connection
-        proto = conn._proto
+        cdef _ProtocolState proto = _get_protocol_state(conn)
         while True:
             new_pos, new_seq = parse_binary_rows_from_buffer(
                 proto.buffer, proto.pos, proto.length, specs, conn._next_seq_id, rows,
@@ -1859,7 +2120,7 @@ cdef class MySQLResult:
 
         # Bulk-parse whatever complete row packets are sitting in the buffer
         conn = self.connection
-        proto = conn._proto
+        cdef _ProtocolState proto = _get_protocol_state(conn)
         cdef list rows = []
         new_pos, new_seq = parse_rows_from_buffer(
             proto.buffer, proto.pos, proto.length, self._row_converters,
@@ -1889,6 +2150,27 @@ cdef class MySQLResult:
         self.rows = (row,)  # rows should tuple of row for MySQL-python compatibility.
         return row
 
+    cpdef list _take_pending_rows(self, limit=None):
+        """Consume already parsed rows without one coroutine call per row."""
+        cdef:
+            list pending = self._pending_rows
+            list rows
+            Py_ssize_t start = self._pending_idx
+            Py_ssize_t end
+        if pending is None or start >= len(pending):
+            return []
+        end = len(pending)
+        if limit is not None:
+            if limit <= 0:
+                return []
+            if limit < end - start:
+                end = start + limit
+        rows = pending[start:end]
+        self._pending_idx = end
+        self.affected_rows = 1
+        self.rows = (rows[-1],)
+        return rows
+
     async def _finish_unbuffered_query(self):
         # After much reading on the MySQL protocol, it appears that there is,
         # in fact, no way to stop MySQL from sending all the data after
@@ -1904,7 +2186,7 @@ cdef class MySQLResult:
         cdef list rows = []
         cdef tuple convs = self._row_converters
         conn = self.connection
-        proto = conn._proto
+        cdef _ProtocolState proto = _get_protocol_state(conn)
         while True:
             # Bulk-parse every complete row packet already sitting in the
             # receive buffer without touching the event loop.

@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 import pytest_asyncio
@@ -14,18 +13,6 @@ connection_kwargs = dict(
     password=os.getenv("MYSQL_PASS") or "123456",
     echo=True,
 )
-
-
-@pytest_asyncio.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop._close = loop.close
-    loop.close = lambda: None
-
-    yield loop
-
-    loop._close()
 
 
 @pytest_asyncio.fixture(scope="session")

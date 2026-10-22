@@ -11,9 +11,10 @@ from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE
 from cpython.bytes cimport (PyBytes_AS_STRING, PyBytes_FromStringAndSize,
                             PyBytes_GET_SIZE)
 from cpython.ref cimport Py_INCREF
+from cpython.long cimport PyLong_AsLongLongAndOverflow, PyLong_AsUnsignedLongLong
 from cpython.tuple cimport PyTuple_New, PyTuple_SET_ITEM
 from cpython.unicode cimport PyUnicode_DecodeASCII, PyUnicode_DecodeUTF8
-from libc.string cimport memchr, memcpy
+from libc.string cimport memchr, memcmp, memcpy
 
 from decimal import Decimal
 
@@ -28,6 +29,45 @@ datetime.import_datetime()
 # Length-coded integer markers
 # NULL_COLUMN = 251, UNSIGNED_CHAR_COLUMN = 251, UNSIGNED_SHORT_COLUMN = 252,
 # UNSIGNED_INT24_COLUMN = 253, UNSIGNED_INT64_COLUMN = 254
+
+
+cdef object _parse_text_int(const unsigned char *p, Py_ssize_t length):
+    """Parse canonical integer fields without allocating intermediate bytes."""
+    cdef:
+        unsigned long long value = 0
+        unsigned int digit
+        Py_ssize_t i = 0
+        bint negative = False
+        object boxed
+
+    if 0 < length <= 20:
+        if p[0] == 45:  # '-'
+            negative = True
+            i = 1
+        elif p[0] == 43:  # '+'
+            i = 1
+        if i < length:
+            while i < length:
+                digit = <unsigned int> p[i] - 48
+                if (
+                    digit > 9
+                    or value > 1844674407370955161ULL
+                    or (value == 1844674407370955161ULL and digit > 5)
+                ):
+                    break
+                value = value * 10 + digit
+                i += 1
+            if i == length:
+                if not negative:
+                    return value
+                if value <= 9223372036854775807ULL:
+                    return -<long long> value
+                boxed = value
+                return -boxed
+
+    # Preserve int() semantics for larger values and noncanonical inputs
+    # (whitespace, underscores, invalid digits, ...).
+    return int(PyBytes_FromStringAndSize(<const char *> p, length))
 
 
 cdef tuple _parse_row(const unsigned char *p, Py_ssize_t size, tuple converters):
@@ -82,6 +122,13 @@ cdef tuple _parse_row(const unsigned char *p, Py_ssize_t size, tuple converters)
 
         conv = <tuple> converters[i]
         code = <int> conv[0]
+        converter = conv[2]
+        if code == 0 and converter is int:
+            value = _parse_text_int(p + pos, length)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
         if code == 0:
             value = PyBytes_FromStringAndSize(<const char *> (p + pos), length)
         elif code == 1:
@@ -92,7 +139,6 @@ cdef tuple _parse_row(const unsigned char *p, Py_ssize_t size, tuple converters)
             value = PyBytes_FromStringAndSize(<const char *> (p + pos), length).decode(<str> conv[1])
         pos += length
 
-        converter = conv[2]
         if converter is not None:
             value = converter(value)
         Py_INCREF(value)
@@ -391,6 +437,113 @@ def skip_packets_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len,
     return pos, seq_id, skipped
 
 
+cpdef object _parse_cached_binary_result(
+        bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len, unsigned int seq_id,
+        Py_ssize_t metadata_packets, tuple colspecs, bint deprecate_eof, tuple column_packets):
+    """Read a complete cached-metadata result already in the receive buffer.
+
+    Return None without consuming or decoding anything if another network read
+    or the generic packet reader is needed. Scan framing before decoding rows
+    so an incomplete large result does not get converted twice.
+    """
+    cdef:
+        const unsigned char *base = <const unsigned char *> PyByteArray_AS_STRING(buf)
+        Py_ssize_t length, row_start, eof_start, next_pos, column = 0, row_count = 0, index
+        unsigned int first, status, warnings
+        bytes expected
+        tuple rows, row
+
+    if pos < 0 or buf_len < pos or buf_len > PyByteArray_GET_SIZE(buf) or metadata_packets < 0:
+        return None
+    if column_packets is None or len(column_packets) != len(colspecs):
+        return None
+    while metadata_packets:
+        if buf_len - pos < 4:
+            return None
+        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+        if base[pos + 3] != seq_id or length == 0xFFFFFF or buf_len - pos - 4 < length:
+            return None
+        if length and base[pos + 4] == 0xFF:
+            return None
+        if column < len(column_packets):
+            expected = column_packets[column]
+            if length != PyBytes_GET_SIZE(expected) or memcmp(
+                base + pos + 4, PyBytes_AS_STRING(expected), length
+            ):
+                return None  # Reprepare/parameter types can change metadata.
+            column += 1
+        pos += length + 4
+        seq_id = (seq_id + 1) & 0xFF
+        metadata_packets -= 1
+
+    row_start = pos
+    while True:
+        if buf_len - pos < 4:
+            return None
+        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+        if (
+            base[pos + 3] != seq_id or length == 0 or length == 0xFFFFFF
+            or buf_len - pos - 4 < length
+        ):
+            return None
+        first = base[pos + 4]
+        if first == 0xFE and (deprecate_eof or length < 9):
+            if deprecate_eof:
+                # Unusual length-encoded affected/insert counts use the generic
+                # OK reader. SELECT terminators normally carry zero for both.
+                if length < 7 or base[pos + 5] != 0 or base[pos + 6] != 0:
+                    return None
+                status = base[pos + 7] | (base[pos + 8] << 8)
+                warnings = base[pos + 9] | (base[pos + 10] << 8)
+            else:
+                if length < 5:
+                    return None
+                warnings = base[pos + 5] | (base[pos + 6] << 8)
+                status = base[pos + 7] | (base[pos + 8] << 8)
+            eof_start = pos
+            next_pos = pos + length + 4
+            seq_id = (seq_id + 1) & 0xFF
+            break
+        if first != 0:
+            return None  # errors and unexpected packets need the packet reader
+        pos += length + 4
+        row_count += 1
+        seq_id = (seq_id + 1) & 0xFF
+
+    rows = PyTuple_New(row_count)
+    pos = row_start
+    for index in range(row_count):
+        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+        row = _parse_binary_row(base + pos + 4, length, colspecs)
+        Py_INCREF(row)
+        PyTuple_SET_ITEM(rows, index, row)
+        pos += length + 4
+    return (
+        next_pos, seq_id, rows, status if deprecate_eof else 0,
+        warnings, status & SERVER_MORE_RESULTS_EXISTS,
+    )
+
+
+cdef object _parse_cached_binary_response(
+        bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len, unsigned int seq_id,
+        Py_ssize_t field_count, tuple colspecs, bint deprecate_eof, tuple column_packets):
+    cdef const unsigned char *base = <const unsigned char *> PyByteArray_AS_STRING(buf)
+    if pos < 0 or buf_len > PyByteArray_GET_SIZE(buf) or buf_len - pos < 5:
+        return None
+    # Larger length-encoded column counts and OK/error responses use the
+    # generic reader. This path handles ordinary SELECT column-count packets.
+    if (
+        base[pos] != 1 or base[pos + 1] or base[pos + 2]
+        or base[pos + 3] != seq_id or field_count < 1 or field_count >= 251
+        or base[pos + 4] != field_count
+    ):
+        return None
+    return _parse_cached_binary_result(
+        buf, pos + 5, buf_len, (seq_id + 1) & 0xFF,
+        field_count + (0 if deprecate_eof else 1), colspecs, deprecate_eof, column_packets,
+    )
+
+
 cdef inline void _write_lenenc(bytearray out, Py_ssize_t n):
     if n < 251:
         out.append(n)
@@ -590,6 +743,79 @@ def pack_bulk_rows(rows, Py_ssize_t nparams, str encoding):
     return bytes(types), bytes(values)
 
 
+cdef inline Py_ssize_t _scalar_param_size(object value):
+    if value is None:
+        return 4
+    if type(value) is bool:
+        return 5
+    if type(value) is int or type(value) is float:
+        return 12
+    return 0
+
+
+cdef inline void _pack_scalar_param(unsigned char* out, object value) except *:
+    cdef long long signed_value
+    cdef unsigned long long unsigned_value
+    cdef double real_value
+    cdef int index, overflow
+    out[0] = 1 if value is None else 0
+    out[1] = 1
+    out[3] = 0
+    if value is None:
+        out[2] = 6
+    elif type(value) is bool:
+        out[2] = 1
+        out[4] = 1 if value else 0
+    elif type(value) is int:
+        out[2] = 8
+        signed_value = PyLong_AsLongLongAndOverflow(value, &overflow)
+        if not overflow:
+            unsigned_value = <unsigned long long>signed_value
+        elif overflow > 0:
+            try:
+                unsigned_value = PyLong_AsUnsignedLongLong(value)
+            except OverflowError:
+                raise ValueError("int parameter out of 64-bit range for MySQL: %r" % (value,)) from None
+            out[3] = 0x80
+        else:
+            raise ValueError("int parameter out of 64-bit range for MySQL: %r" % (value,))
+        for index in range(8):
+            out[4 + index] = <unsigned char>(unsigned_value >> (8 * index))
+    else:
+        out[2] = 5
+        real_value = value
+        memcpy(out + 4, &real_value, 8)
+
+
+cdef bytes _pack_execute_packet(bytes header, tuple args, str encoding, bint* is_packet):
+    cdef Py_ssize_t size = _scalar_param_size(args[0]) if len(args) == 1 else 0
+    cdef bytes packet, params
+    cdef unsigned char* out
+    is_packet[0] = True
+    if size:
+        packet = PyBytes_FromStringAndSize(NULL, 14 + size)
+        out = <unsigned char*>PyBytes_AS_STRING(packet)
+        _pack_scalar_param(out + 14, args[0])
+    else:
+        params = pack_binary_params(args, encoding) if args else b""
+        size = len(params)
+        if size + 9 >= 8191:
+            # Let the command writer split large payloads without encoding
+            # their parameters a second time.
+            is_packet[0] = False
+            return header + params
+        packet = PyBytes_FromStringAndSize(NULL, 14 + size)
+        out = <unsigned char*>PyBytes_AS_STRING(packet)
+        memcpy(out + 14, PyBytes_AS_STRING(params), size)
+    out[0] = <unsigned char>(size + 10)
+    out[1] = <unsigned char>((size + 10) >> 8)
+    out[2] = 0
+    out[3] = 0
+    out[4] = 0x17
+    memcpy(out + 5, PyBytes_AS_STRING(header), 9)
+    return packet
+
+
 cpdef bytes pack_binary_params(tuple args, str encoding):
     """Serialize COM_STMT_EXECUTE parameters.
 
@@ -597,9 +823,7 @@ cpdef bytes pack_binary_params(tuple args, str encoding):
     """
     cdef:
         Py_ssize_t n = len(args)
-        bytearray bitmap = bytearray((n + 7) >> 3)
-        bytearray types = bytearray()
-        bytearray values = bytearray()
+        bytearray bitmap, types, values
         Py_ssize_t i
         object v
         long long i64v
@@ -609,6 +833,19 @@ cpdef bytes pack_binary_params(tuple args, str encoding):
         long usec
         unsigned char tmp[8]
         bytes encoded
+        bytes packed
+        unsigned char *out
+
+    if n == 1:
+        i = _scalar_param_size(args[0])
+        if i:
+            packed = PyBytes_FromStringAndSize(NULL, i)
+            _pack_scalar_param(<unsigned char*>PyBytes_AS_STRING(packed), args[0])
+            return packed
+
+    bitmap = bytearray((n + 7) >> 3)
+    types = bytearray()
+    values = bytearray()
 
     for i in range(n):
         v = args[i]
@@ -1101,3 +1338,51 @@ cdef class LoadLocalPacketWrapper:
 
     def __getattr__(self, key):
         return getattr(self.packet, key)
+
+
+cdef extern from *:
+    """
+    #if !defined(_WIN32)
+    #include <sys/socket.h>
+    static Py_ssize_t asyncmy_send(int fd, const char *data, Py_ssize_t size) {
+    #ifdef MSG_NOSIGNAL
+        return send(fd, data, size, MSG_NOSIGNAL);
+    #else
+        return send(fd, data, size, 0);
+    #endif
+    }
+    #else
+    static Py_ssize_t asyncmy_send(int fd, const char *data, Py_ssize_t size) {return 0;}
+    #endif
+    """
+    Py_ssize_t asyncmy_send(int fd, const char* data, Py_ssize_t size)
+
+cpdef object _send_scalar_execute(bytes header, tuple args, int fd):
+    """Send a small scalar packet from the stack on a nonblocking plain socket.
+
+    None means sent; False means unsupported; bytes are the unsent suffix for
+    the transport's ordinary buffering/error handling. Called only while that
+    transport has no queued writes, preserving byte order after partial sends.
+    """
+    cdef unsigned char data[26]
+    cdef Py_ssize_t size, sent
+    if header is None or len(header) != 9:
+        raise ValueError("Expected a 9-byte prepared execution header")
+    if args is None:
+        raise TypeError("Expected a parameter tuple")
+    if len(args) != 1:
+        return False
+    size = _scalar_param_size(args[0])
+    if not size:
+        return False
+    _pack_scalar_param(data + 14, args[0])
+    data[0] = <unsigned char>(size + 10)
+    data[1] = data[2] = data[3] = 0
+    data[4] = 0x17
+    memcpy(data + 5, PyBytes_AS_STRING(header), 9)
+    sent = asyncmy_send(fd, <const char*>data, size + 14)
+    if sent == size + 14:
+        return None
+    if sent < 0:
+        sent = 0
+    return PyBytes_FromStringAndSize(<const char*>data + sent, size + 14 - sent)

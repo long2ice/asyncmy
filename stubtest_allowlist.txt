@@ -1,13 +1,6 @@
 # Entries stubtest cannot check meaningfully. Keep this list short and
 # explained — it is the escape hatch, not the norm.
 
-# `from typing import Any` is a module member at runtime, so stubtest compares
-# typing.Any against itself and trips over its metaclass. Not our code.
-asyncmy.contexts.Any
-asyncmy.contexts.Any.__new__
-asyncmy.replication.binlogstream.Any
-asyncmy.replication.binlogstream.Any.__new__
-
 # Cython gives extension-type constructors a (*args, **kwargs) runtime
 # signature. The stub carries the real one, which is what callers need.
 asyncmy.charset.Charsets.__init__

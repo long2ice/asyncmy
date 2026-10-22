@@ -1,345 +1,192 @@
 # asyncmy Benchmark Suite
 
-Comprehensive performance benchmarks for `asyncmy`, comparing against `mysqlclient`, `pymysql`, and `aiomysql`.
+This directory contains two benchmark suites:
 
-## Test Environment
+| Suite | Drivers | Workloads | Reported statistic |
+| --- | --- | --- | --- |
+| [Cross-language](./crosslang/README.md) | asyncmy (asyncio / uvloop), Go `go-sql-driver/mysql`, Rust `mysql_async` | 50k-row integer/mixed scans; 20×200 pooled point queries; text and binary separately | Median of 504 samples per case across 72 balanced rounds |
+| [Python drivers](#python-driver-suite) | asyncmy, mysqlclient, PyMySQL, aiomysql | Large result sets, concurrent connections, connection pools, batch inserts | One warmup, then best of three runs |
 
-- **CPU:** Apple Mac Studio (M4 Max)
-- **Memory:** 64GB
-- **Python:** 3.14
-- **MySQL:** 9.7.1 (localhost)
-- **Test Data:** 100,000 rows with realistic schema
+Both suites were measured on 2026-10-22 with the current toolchain. The
+[cross-language results](#current-results) retain all 504 samples per case;
+the [Python-driver snapshot](#python-driver-results) records the console-reported
+best-of-three timings from one suite invocation. Keep these sampling methods
+and workloads separate when comparing results.
+
+## Current results
+
+Measured on **2026-10-22** against the existing local MySQL instance over TCP.
+
+| Component | Version / setting |
+| --- | --- |
+| Hardware / OS | Apple M4 Max / macOS 27.0.1 arm64 |
+| MySQL | 26.10.0 |
+| CPython / Cython | 3.15.1 / 3.3.0 |
+| uvloop | 0.23.0 |
+| Go / go-sql-driver/mysql | 1.27.3 / 1.10.1 |
+| Rust / mysql_async / Tokio | 1.99.1 / 0.37.1 / 1.54.1 |
+| Connection | TCP `127.0.0.1:3306`, autocommit enabled |
+| Point queries | 10 prewarmed connections, 20 workers × 200 queries |
+
+Times are **milliseconds**, lower is better. Each value is the median of all
+**504 timed samples** per case, with no samples discarded.
+
+| Scenario | asyncmy asyncio | asyncmy uvloop | Go | Rust |
+| --- | ---: | ---: | ---: | ---: |
+| 50k rows × 8 integer columns, text | 12.94 | 13.95 | 19.12 | 18.01 |
+| 50k rows × 8 integer columns, binary | 9.97 | 9.74 | 12.64 | 9.60 |
+| 50k rows × 10 mixed columns, text | 36.71 | 41.86 | 33.73 | 33.41 |
+| 50k rows × 10 mixed columns, binary | 23.56 | 23.55 | 25.49 | 20.43 |
+| Pooled 20×200 point queries, text | 51.24 | 45.03 | 34.87 | 33.49 |
+| Pooled 20×200 point queries, binary | 34.68 | 31.11 | 32.06 | 34.12 |
+
+For pooled binary point queries, ordinary asyncmy Cursor calls with uvloop,
+`stmt_cache_size=32` and `autocommit=True` lead Go and Rust in this configuration.
+Mean per-round throughput advantage is **2.79% over Go** (95% CI
+**1.65–3.88%**) and **9.37% over Rust** (95% CI **8.64–10.22%**). Individual
+rounds overlap; the intervals describe the average advantage, calculated by
+resampling balanced six-round blocks.
+
+Both native drivers lead on text point queries, and Rust leads on mixed scans.
+In mixed scans, Python constructs `Decimal` values while Go/Rust retain DECIMAL
+strings, so materialization differs. These results describe the measured workloads and
+configuration, rather than a general ranking for every application.
+
+[Full methodology, reproduction commands and API example](./crosslang/README.md)
+include the client-order schedule, confidence-interval calculation and
+transaction/pool settings. [results.json](./crosslang/results.json) contains all
+raw samples, environment details, source hashes, validation results and
+separately labeled earlier measurements.
 
 ## Methodology
 
-Every test runs a warmup pass first (to populate the MySQL buffer pool, auth
-cache, and driver-internal caches), then reports the **best of 3 measured
-runs**. This is handled by `best_result()` in `benchmark/__init__.py`.
+The suites use different sampling rules and schemas. Compare drivers within
+the same suite and protocol case.
 
-## Performance Summary
+The cross-language suite runs clients sequentially through all six client-order
+permutations, repeated twelve times. Each round has one warmup and seven timed
+samples per case (72 × 7 = 504). Python uses one event-loop thread, Rust uses a
+current-thread Tokio runtime, and Go sets `GOMAXPROCS(1)`; helper threads can
+still exist. All scan rows are fetched and retained. Binary scans explicitly
+prepare once; binary point queries reuse each connection's prepared-statement
+cache. Every point query includes pool acquisition, query, fetch and release.
 
-| Test                                     | Winner         | asyncmy Rank | Notes                                        |
-| ---------------------------------------- | -------------- | ------------ | -------------------------------------------- |
-| **Large Result Set** (33k rows)          | 🏆 **asyncmy** | **#1/5**     | 2.2x faster than mysqlclient (a C sync lib)  |
-| **Concurrent Queries** (50 connections)  | 🏆 **asyncmy** | **#1/2**     | 1.6x faster than aiomysql                    |
-| **Connection Pool** (2k queries)         | 🏆 **asyncmy** | **#1/2**     | 2x aiomysql's throughput (~17k qps)          |
-| **Batch Insert** (10k rows)              | 🏆 **asyncmy** | **#1/4**     | ~107k rows/sec, fastest of all four          |
+The Python-driver suite uses [`best_result()`](./__init__.py): one warmup followed
+by three measured runs, reporting the fastest. It uses standard asyncio and
+`autocommit=True`. Its large-result test also includes an asyncmy binary case;
+the other Python-driver workloads use the text protocol.
 
-## Key Insights
+## Python driver suite
 
-- ✅ **Large Result Set**: asyncmy is now the fastest driver, period — 2.2x faster
-  than mysqlclient and 5.3x faster than aiomysql/pymysql
-- ✅ **Connection Pool**: ~17,000 queries/sec, double aiomysql's throughput
-- ✅ **Concurrent Queries**: fastest connection setup + query round-trip
-- ✅ **Batch Insert**: fastest `executemany()` of all four drivers (~107k rows/sec)
-- ✅ **Binary protocol** (`stmt_cache_size`): on numeric/datetime-heavy tables the
-  binary path is another ~35% faster than the text protocol (see the
-  [cross-language benchmark](./crosslang/README.md)); on this suite's
-  string-heavy schema text and binary are equal
+### Python driver results
 
-## Recent Optimizations
+Measured on 2026-10-22, Apple M4 Max, macOS 27.0.1 arm64, MySQL 26.10.0 over
+TCP, CPython 3.15.1, Cython 3.3.0 and standard asyncio. Drivers: asyncmy 0.2.17
+(working tree), mysqlclient 2.3.0, PyMySQL 1.2.3 and aiomysql 0.3.2.
 
-The protocol core was rebuilt around direct C-level parsing:
+Times are milliseconds rounded to the nearest millisecond from the runner's
+console output. Each entry is the fastest of three runs after one warmup.
 
-1. **Buffered packet reading** — packets are consumed from a receive buffer
-   filled by large socket reads, instead of two `await`s per packet. A 33k-row
-   result set now costs a handful of event-loop round-trips instead of ~66,000.
-2. **Bulk row parsing** — all complete row packets sitting in the buffer are
-   parsed in one C loop (`parse_rows_from_buffer`), creating no intermediate
-   packet objects.
-3. **Pointer-based protocol reads** — integers and length-encoded values are
-   read directly from raw memory; no `struct.unpack` calls remain on the hot path.
-4. **Direct cell decoding** — string cells decode straight from the receive
-   buffer via `PyUnicode_DecodeUTF8`/`PyUnicode_DecodeASCII`; rows are built
-   with `PyTuple_New`/`PyTuple_SET_ITEM`.
-5. **Zero-decode numeric & temporal columns** — `int`/`float` parse directly
-   from bytes; DATETIME/DATE/TIME values are parsed byte-by-byte in C and
-   constructed through the CPython datetime C-API (no regex, no str detour).
-6. **Escape fast path** — strings/bytes without special characters skip the
-   translation table entirely.
-7. **Leaner cursors** — `fetchone/fetchmany/fetchall` no longer allocate an
-   `asyncio.Future` per call.
-8. **Compiler tuning** — `-O3` with `cdivision`, `initializedcheck=False`, and
-   bounds-check-free parsing code.
+| Workload | asyncmy | mysqlclient | PyMySQL | aiomysql |
+| --- | ---: | ---: | ---: | ---: |
+| Large result set, 33,334 mixed-type rows | **29** | 60 | 112 | 122 |
+| 50 concurrent queries, one connection each | **6** | — | — | 8 |
+| 2,000 pooled queries, 5–20 connections | **56** | — | — | 202 |
+| Batch insert, 10,000 rows | **123** | 145 | 138 | **123** |
 
-Measured impact (driver-level micro-benchmarks, 50k rows, best-of-N):
+The asyncmy column uses text protocol; the separate asyncmy binary large-result
+case took 30 ms with `stmt_cache_size=16`. A dash marks an unmeasured combination.
+The read and pool workloads favor asyncmy; batch insertion is effectively tied
+with aiomysql in this run. This single best-of-three snapshot does not provide
+the repeated-round confidence intervals of the cross-language suite.
 
-| Workload                    | Before  | After   | Speedup |
-| --------------------------- | ------- | ------- | ------- |
-| Mixed-type full scan        | 221.5ms | 32.5ms  | 6.8x    |
-| Integer columns scan        | 114.2ms | 19.4ms  | 5.9x    |
-| String columns scan         | 88.1ms  | 11.7ms  | 7.5x    |
-| Datetime columns scan       | 244.6ms | 16.1ms  | 15.2x   |
-| SSCursor (unbuffered) scan  | 111.0ms | 39.5ms  | 2.8x    |
-| Pooled small queries        | 229.0ms | 185.4ms | 1.24x   |
+[Recorded Python-driver results](./python-results.json) contain the reported
+timings, throughput, versions, settings and source hashes. Individual sample
+timings were not captured by this runner invocation.
 
-0.2.13 adds the binary protocol and a zero-copy receive path on top
-(mixed-type 50k-row scan on `test.bench`, best-of-N):
+### Workloads
 
-| Path                                        | 0.2.12 (text) | 0.2.13  |
-| ------------------------------------------- | ------------- | ------- |
-| `conn.prepare()` binary scan                | —             | 22.9ms  |
-| `cursor.execute` + `stmt_cache_size` scan   | 36.9ms        | 25.3ms  |
-| Text-protocol scan                          | 37.4ms        | 36.9ms  |
-| SSCursor scan (bulk prefetch)               | 39.5ms        | 36.8ms  |
-| Pooled point queries via cursor (uvloop)    | 71.7ms        | 64.2ms  |
+The setup creates 100,000 rows in `test.benchmark_data`.
 
-## Cross-language: vs native Go/Rust drivers
+| Module | Workload | Drivers |
+| --- | --- | --- |
+| [`large_resultset.py`](./large_resultset.py) | Fetch all columns where `is_active=1`, about 33,334 rows in the initial dataset | asyncmy text, asyncmy binary (`stmt_cache_size=16`), mysqlclient, PyMySQL, aiomysql |
+| [`concurrent.py`](./concurrent.py) | 50 concurrent SELECTs, each opening and closing its own connection | asyncmy, aiomysql |
+| [`pool.py`](./pool.py) | 2,000 concurrent SELECTs through a pool of 5–20 connections | asyncmy, aiomysql |
+| [`batch_insert.py`](./batch_insert.py) | Insert 10,000 rows with `executemany()` | asyncmy, mysqlclient, PyMySQL, aiomysql |
 
-Same machine, same data, full type materialization ([details & fairness notes](./crosslang/README.md)):
+The schema includes integers, VARCHAR/TEXT, DATETIME and DECIMAL columns, with
+indexes on `user_id` and `created_at`. See [`setup.py`](./setup.py) for the exact
+schema and generated values, and [`__init__.py`](./__init__.py) for defaults.
+These workloads use `test.benchmark_data`; the cross-language suite uses the
+separate `test.bench` table.
 
-| Scenario | Go (go-sql-driver) | asyncmy | Rust (mysql_async) |
-| --- | --- | --- | --- |
-| 50k-row mixed-type full scan | **0.032s** | 0.036s | 0.048s |
-| Pooled 20×200 point queries | 0.076s | 0.093s | **0.048s** |
+### Run all four workloads
 
-asyncmy's scan path is within ~12% of Go and ~25% faster than the mainstream
-async Rust driver. The point-query gap is mostly prepared statements + binary
-protocol (which Go/Rust use and asyncmy doesn't yet), not the language.
-
-## Test Scenarios
-
-### 1. Large Result Set (`large_resultset.py`)
-
-Tests the efficiency of fetching and processing large datasets in a single query.
-
-**What it measures:**
-
-- Packet reading efficiency (buffered bulk reads)
-- Data parsing speed (C-level row/datetime parsing)
-- Memory efficiency
-
-**Test:** Fetch ~33,000 rows with all column types (int, varchar, datetime, decimal, text)
-
-**Results (typical):**
-
-```text
-1. asyncmy-binary   0.030s  (1.00x vs best)
-2. asyncmy          0.030s  (0.98x vs best)
-3. mysqlclient      0.067s  (0.44x vs best)
-4. pymysql          0.153s  (0.19x vs best)
-5. aiomysql         0.158s  (0.19x vs best)
-```
-
-### 2. Concurrent Queries (`concurrent.py`)
-
-Tests async libraries' ability to run multiple queries concurrently.
-
-**What it measures:**
-
-- Connection handling under concurrent load
-- Async I/O efficiency
-- Query interleaving capabilities
-
-**Test:** Execute 50 concurrent SELECT queries (each query gets its own connection)
-
-**Results (typical):**
-
-```text
-1. asyncmy          0.006s  (~8,600 queries/sec)
-2. aiomysql         0.009s  (~5,500 queries/sec)
-```
-
-**Note:** Synchronous libraries (mysqlclient, pymysql) cannot efficiently handle this scenario without threads.
-
-### 3. Connection Pool (`pool.py`)
-
-Tests connection pool performance with concurrent query load.
-
-**What it measures:**
-
-- Connection acquisition/release efficiency
-- Connection reuse patterns
-- Pool management under concurrent access
-
-**Test:** Execute 2,000 queries using a connection pool (5-20 connections)
-
-**Results (typical):**
-
-```text
-1. asyncmy          0.117s  (1.00x vs best) ⭐ WINNER - ~17,000 queries/sec
-2. aiomysql         0.235s  (0.50x vs best) - ~8,500 queries/sec
-```
-
-**Insight:** asyncmy's connection pool consistently delivers **~2x aiomysql's throughput**.
-
-### 4. Batch Insert (`batch_insert.py`)
-
-Tests bulk insert performance using `executemany()`.
-
-**What it measures:**
-
-- Batch operation efficiency
-- SQL statement building
-- Network/protocol overhead
-
-**Test:** Insert 10,000 rows using `executemany()`
-
-**Results (typical):**
-
-```text
-1. asyncmy          0.093s  (~107,000 rows/sec)
-2. aiomysql         0.108s  (~92,000 rows/sec)
-3. mysqlclient      0.110s  (~91,000 rows/sec)
-4. pymysql          0.121s  (~83,000 rows/sec)
-```
-
-**Note:** This workload is largely bound by the MySQL server; rankings between
-the runner-ups can shift between runs, but asyncmy has been consistently fastest.
-
-## Running the Benchmarks
-
-### Prerequisites
-
-1. MySQL server running and accessible
-2. Python ≥ 3.9 with required packages installed
-
-### Setup
+Use a local MySQL server and run from the repository root. To match the Python
+build used for the recorded cross-language results:
 
 ```bash
-# Set database connection parameters
-export MYSQL_HOST=localhost
-export MYSQL_USER=root
-export MYSQL_PASS=password
+uv sync --all-groups --frozen --python 3.15.1
 
-# Optional: specify port (default: 3306)
+export MYSQL_HOST=127.0.0.1
 export MYSQL_PORT=3306
+export MYSQL_USER=root
+export MYSQL_PASS=123456
+
+.venv/bin/python -m benchmark.run_all
 ```
 
-### Run All Benchmarks
+The suite reads these environment variables, with defaults `localhost`, `3306`,
+`root`, and `123456`. The database name is fixed to `test`. It requires permission
+to create the database and create/drop tables in it.
+
+`run_all` recreates `test.benchmark_data`, populates 100,000 rows, runs the four
+workloads, prints their rankings, then drops that table in cleanup. The existing
+`test.bench` data used for cross-language tests is retained.
+
+### Run individual workloads
+
+Individual modules require data setup first and leave cleanup to the caller:
 
 ```bash
-# Run complete benchmark suite
-python -m benchmark.run_all
+.venv/bin/python -m benchmark.setup
+.venv/bin/python -m benchmark.large_resultset
+.venv/bin/python -m benchmark.concurrent
+.venv/bin/python -m benchmark.pool
+.venv/bin/python -m benchmark.batch_insert
+.venv/bin/python -c 'from benchmark.setup import cleanup_database; cleanup_database()'
 ```
 
-This will:
+The batch-insert workload adds active rows; recreate the dataset with
+`benchmark.setup` before repeating read workloads if you need their initial row
+counts. Keep other database activity, builds and tests out of measured runs.
+Record the environment and protocol configuration alongside results.
 
-1. Create test database and populate with 100,000 rows
-2. Run all 4 benchmark tests (warmup + best-of-3 each)
-3. Generate a summary report
-4. Clean up test data
+### Configuration
 
-### Run Individual Tests
-
-```bash
-# Test large result set performance
-python -m benchmark.large_resultset
-
-# Test concurrent query performance
-python -m benchmark.concurrent
-
-# Test connection pool performance
-python -m benchmark.pool
-
-# Test batch insert performance
-python -m benchmark.batch_insert
-```
-
-## Test Data Schema
-
-The benchmark uses a realistic table schema:
-
-```sql
-CREATE TABLE benchmark_data (
-    id INT NOT NULL AUTO_INCREMENT,
-    user_id INT NOT NULL,
-    username VARCHAR(50) NOT NULL,
-    email VARCHAR(100) NOT NULL,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    score DECIMAL(10,2) NOT NULL,
-    is_active TINYINT NOT NULL,
-    data TEXT,
-    PRIMARY KEY (id),
-    INDEX idx_user_id (user_id),
-    INDEX idx_created_at (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-```
-
-## Benchmark Configuration
-
-Default settings (can be modified in `benchmark/__init__.py`):
+Defaults in [`__init__.py`](./__init__.py):
 
 ```python
-ROW_COUNT = 100000          # Total test rows
-BATCH_SIZE = 10000          # Batch operation size
-CONCURRENT_COUNT = 50       # Number of concurrent operations
-WARMUP_RUNS = 1             # Discarded warmup runs per test
-MEASURED_RUNS = 3           # Measured runs; fastest is reported
+ROW_COUNT = 100000
+BATCH_SIZE = 10000
+CONCURRENT_COUNT = 50
+WARMUP_RUNS = 1
+MEASURED_RUNS = 3  # Fastest measured run is reported.
 ```
 
-## Performance Tips
-
-Based on benchmark results, asyncmy performs best when:
-
-1. **Fetching large result sets** — the C-level bulk row parser makes reads the
-   fastest of any Python MySQL driver tested, sync or async
-2. **Processing datetime-heavy data** — temporal columns parse in C directly
-   from the wire bytes
-3. **Using connection pools** — ~2x aiomysql's pooled throughput
-4. **Handling concurrent workloads** — async architecture plus cheap per-query
-   overhead
-
-## Comparison with Other Libraries
-
-### vs mysqlclient (sync, C extension)
-
-- ✅ **2.1x faster** for large result sets
-- ✅ **Better** for concurrent workloads (asyncmy uses async I/O)
-- ✅ **Faster** batch inserts
-
-### vs pymysql (sync, pure Python)
-
-- ✅ **5x faster** for large result sets
-- ✅ **Much better** for concurrent workloads
-- ✅ **Better** connection pool (asyncmy has native pool)
-
-### vs aiomysql (async)
-
-- ✅ **5.2x faster** for large result sets (C-level bulk parsing)
-- ✅ **2x** connection pool throughput
-- ✅ **1.6x faster** concurrent queries
-- ✅ **Faster** batch inserts
+The Python-suite pool settings are in [`pool.py`](./pool.py): minimum 5,
+maximum 20 connections and 2,000 queries. These differ from the cross-language
+suite's fixed ten-connection pool and 4,000 point queries.
 
 ## Contributing
 
-To add new benchmarks:
-
-1. Create a new file: `benchmark/your_benchmark.py`
-2. Implement test functions following the existing pattern
-3. Add a `run_benchmark()` function that returns sorted results
-4. Import and call your test in `benchmark/run_all.py`
-
-Example template:
-
-```python
-"""
-Benchmark: Your Test Name
-
-Description of what this test measures.
-"""
-import asyncio
-import time
-from benchmark import best_result, connection_kwargs
-
-async def test_asyncmy():
-    # Your test implementation
-    start = time.time()
-    # ... test code ...
-    elapsed = time.time() - start
-    return elapsed
-
-def run_benchmark():
-    results = {}
-    loop = asyncio.new_event_loop()
-
-    # Run tests and collect results (warmup + best-of-3)
-    results['asyncmy'] = best_result(lambda: loop.run_until_complete(test_asyncmy()))
-
-    # Return sorted results
-    return sorted(results.items(), key=lambda x: x[1])
-```
+Add a module with a `run_benchmark()` function returning `(driver, elapsed)`
+pairs sorted by elapsed time, then call it from [`run_all.py`](./run_all.py).
+Use `best_result()` for the Python suite. For cross-language changes, keep the
+queries, transport, transaction settings, result retention and protocol mode
+aligned across clients. Retain raw samples and record source hashes when
+publishing new results.
 
 ## License
 

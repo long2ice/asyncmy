@@ -7,7 +7,7 @@ import pytest
 from asyncmy.connection import Connection
 from asyncmy.connection import _MySQLProtocol  # type: ignore[attr-defined]  # Private protocol helper.
 from asyncmy.constants.CR import CR_SERVER_GONE_ERROR, CR_SERVER_LOST
-from asyncmy.errors import OperationalError
+from asyncmy.errors import InterfaceError, InternalError, OperationalError
 from conftest import connection_kwargs
 
 
@@ -23,6 +23,105 @@ async def test_connect():
     assert connection.get_proto_info() == 10
     assert connection.get_host_info() != "Not Connected"
     await connection.ensure_closed()
+
+
+def _feed_protocol(proto, data):
+    while data:
+        view = proto.get_buffer(len(data))
+        count = min(len(view), len(data))
+        view[:count] = data[:count]
+        del view
+        proto.buffer_updated(count)
+        data = data[count:]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("split", range(1, 12))
+async def test_packet_read_across_header_and_payload_fragments(split):
+    conn = Connection()
+    proto = _MySQLProtocol(asyncio.get_running_loop())
+    assert isinstance(proto, asyncio.BufferedProtocol)
+    conn._proto = proto
+    conn._next_seq_id = 0
+    payload = b"payload!"
+    wire = len(payload).to_bytes(3, "little") + b"\x00" + payload
+    _feed_protocol(proto, wire[:split])
+    reader = asyncio.create_task(conn.read_packet())
+    try:
+        await asyncio.sleep(0)
+        assert not reader.done()
+        _feed_protocol(proto, wire[split:])
+        packet = await asyncio.wait_for(reader, timeout=5)
+        assert packet.get_all_data() == payload
+        assert conn._next_seq_id == 1
+        assert proto.pos == proto.length
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_packet_read_grows_and_compacts_receive_buffer():
+    conn = Connection()
+    proto = _MySQLProtocol(asyncio.get_running_loop())
+    conn._proto = proto
+    conn._next_seq_id = 0
+    payload = b"x" * (1024 * 1024 + 17)
+    wire = len(payload).to_bytes(3, "little") + b"\x00" + payload
+    # Leave part of the body buffered while the reader awaits the rest.
+    _feed_protocol(proto, wire[:123])
+    reader = asyncio.create_task(conn.read_packet())
+    try:
+        await asyncio.sleep(0)
+        _feed_protocol(proto, wire[123:])
+        assert len(proto.buffer) > 256 * 1024
+        packet = await asyncio.wait_for(reader, timeout=5)
+        assert packet.get_all_data() == payload
+        _feed_protocol(proto, b"\x02\x00\x00\x01ok")
+        assert (await conn.read_packet()).get_all_data() == b"ok"
+        assert proto.pos == proto.length
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("sequence", [0, 2])
+async def test_packet_reader_checks_sequence_number(sequence):
+    conn = Connection()
+    conn._proto = _MySQLProtocol(asyncio.get_running_loop())
+    conn._next_seq_id = 1
+    _feed_protocol(conn._proto, b"\x01\x00\x00" + bytes([sequence]) + b"x")
+    error = OperationalError if sequence == 0 else InternalError
+    with pytest.raises(error):
+        await conn.read_packet()
+
+
+@pytest.mark.asyncio
+async def test_packet_read_without_protocol_is_rejected():
+    conn = Connection()
+    with pytest.raises(InterfaceError, match="Not connected"):
+        await conn.read_packet()
+    with pytest.raises(InterfaceError, match="Not connected"):
+        await conn._read_bytes(1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_transport", [False, True])
+async def test_closed_stream_is_detected_before_connection_lost_callback(close_transport):
+    conn = Connection(**connection_kwargs)
+    await conn.connect()
+    try:
+        if close_transport:
+            conn._transport.close()
+        else:
+            conn.close()
+            assert not conn.connected
+        # No event-loop turn has delivered connection_lost() yet. A pool
+        # checkout must still reject the stream immediately.
+        assert conn._stream_broken
+    finally:
+        conn.close()
 
 
 @pytest.mark.asyncio

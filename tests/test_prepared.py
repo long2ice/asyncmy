@@ -1,9 +1,33 @@
 import datetime
+import weakref
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
 from asyncmy import errors
+from asyncmy.connection import PreparedStatement
+
+
+@pytest.mark.asyncio
+async def test_prepared_statement_remains_extensible(connection, monkeypatch):
+    original_execute = PreparedStatement.execute
+    calls = []
+
+    async def execute(self, args=()):
+        calls.append(args)
+        return await original_execute(self, args)
+
+    monkeypatch.setattr(PreparedStatement, "execute", execute)
+    stmt = await connection.prepare("SELECT ?")
+    try:
+        stmt.tag = "custom attribute"
+        assert weakref.ref(stmt)() is stmt
+        assert stmt.tag == "custom attribute"
+        assert (await stmt.execute((42,))).rows == ((42,),)
+        assert calls == [(42,)]
+    finally:
+        await stmt.close()
 
 
 @pytest.mark.asyncio
@@ -92,6 +116,9 @@ async def test_prepared_table_roundtrip(connection):
 
         async with await connection.prepare("SELECT * FROM test.bin_prepared ORDER BY id") as sel:
             result = await sel.execute()
+            cached = await sel.execute()
+            assert cached.rows == result.rows
+            result = cached
         r1, r2 = result.rows
         assert r1[1:9] == (-128, 255, -32768, 8388607, -2147483648, -(2**63), 2**64 - 1, 2024)
         assert r1[9] == 1.5 and r1[10] == 2.25
@@ -133,3 +160,43 @@ async def test_prepared_errors(connection):
     await stmt.close()
     with pytest.raises(errors.ProgrammingError):
         await stmt.execute((1,))  # closed statement
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query,values",
+    [
+        ("SELECT ?", [1, 2**64 - 1, -1, 3.5]),
+        ("SELECT ?", ["x", "longer string", "中文", None]),
+        ("SELECT CAST(? AS BINARY)", [b"\xff", b"\x00\xfflonger"]),
+        ("SELECT ?", [Decimal("1.25"), Decimal("12345.6789")]),
+        ("SELECT ?", [None, 1, None, -1, 2**64 - 1]),
+    ],
+)
+async def test_cached_prepared_metadata_tracks_parameter_type_changes(connection, query, values):
+    async with await connection.prepare(query) as stmt:
+        for value in values:
+            result = await stmt.execute((value,))
+            assert result.rows == ((value,),)
+            assert (await stmt.execute((value,))).rows == result.rows
+
+
+@pytest.mark.asyncio
+async def test_cached_prepared_drains_multiple_result_sets(connection):
+    name = "test.cached_results_" + uuid4().hex
+    async with connection.cursor() as cur:
+        await cur.execute(
+            f"CREATE PROCEDURE {name}(IN p INT) BEGIN SELECT p AS value; SELECT p+1; END"
+        )
+    try:
+        async with await connection.prepare(f"CALL {name}(?)") as stmt:
+            for value in [1, 2, None]:
+                result = await stmt.execute((value,))
+                assert result.rows == ((value,),)
+                assert not result.has_next
+                async with connection.cursor() as cur:
+                    await cur.execute("SELECT 99")
+                    assert await cur.fetchone() == (99,)
+    finally:
+        async with connection.cursor() as cur:
+            await cur.execute(f"DROP PROCEDURE {name}")

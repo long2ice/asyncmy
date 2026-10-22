@@ -5,38 +5,17 @@
 [![CI](https://github.com/long2ice/asyncmy/actions/workflows/ci.yml/badge.svg)](https://github.com/long2ice/asyncmy/actions/workflows/ci.yml)
 [![Release](https://github.com/long2ice/asyncmy/actions/workflows/pypi.yml/badge.svg)](https://github.com/long2ice/asyncmy/actions/workflows/pypi.yml)
 
-`asyncmy` is the fastest asyncio MySQL/MariaDB driver for Python. It keeps the familiar [aiomysql](https://github.com/aio-libs/aiomysql) API while rewriting the entire protocol core in [Cython](https://cython.org/) — down to pointer-level packet parsing. In [our benchmarks](./benchmark/README.md) it outperforms every driver tested, including the C-based synchronous `mysqlclient`.
+`asyncmy` is the fastest asyncio MySQL/MariaDB driver for Python. It keeps the familiar [aiomysql](https://github.com/aio-libs/aiomysql) API while rewriting the entire protocol core in [Cython](https://cython.org/) — down to pointer-level packet parsing. See [our benchmarks](#benchmark) for Python-driver and Go/Rust comparisons, including their measured settings and results.
 
 ## Features
 
-- 🚀 **Fastest in every benchmark** — reads large result sets 2.1x faster than `mysqlclient` and 5x faster than `aiomysql`/`pymysql` ([details](./benchmark/README.md))
+- 🚀 **Fast Python queries** — large-result fetching takes about half mysqlclient's time; pooled queries deliver 3.6× aiomysql's throughput in the [local benchmark](#benchmark)
 - 🔌 **Drop-in aiomysql replacement** — same API, same cursors (`DictCursor`, `SSCursor`), same pool semantics
-- 🧬 **Server-side prepared statements** (binary protocol) via `conn.prepare()` — no client-side escaping, no text parsing; large scans another ~35% faster than the text protocol
+- 🧬 **Server-side prepared statements** (binary protocol) via `conn.prepare()` or cached regular Cursor calls — numeric and temporal values decode directly from their binary representation
 - ⚡ **C-speed protocol core** — rows are parsed in bulk from the receive buffer in a single C loop, values decode straight from wire bytes via the CPython C-API
-- 🏊 **Built-in connection pool** — `asyncmy.create_pool()`, no extra dependency, 2x aiomysql's pooled throughput
+- 🏊 **Built-in connection pool** — `asyncmy.create_pool()`, with reusable connections and cached prepared statements
 - 📡 **MySQL replication protocol** over asyncio ([BinLogStream](https://github.com/long2ice/asyncmy/blob/dev/asyncmy/replication/binlogstream.py))
 - ✅ **CI-tested on MySQL and MariaDB** ([workflow](https://github.com/long2ice/asyncmy/blob/dev/.github/workflows/ci.yml))
-
-## Benchmark
-
-asyncmy ranks **#1 in all four scenarios** against `mysqlclient`, `pymysql`, and `aiomysql` (warmup + best-of-3, see [methodology](./benchmark/README.md#methodology)):
-
-| Test | asyncmy Rank | Performance |
-| ---- | ------------ | ----------- |
-| **Large Result Set** (33k rows, all types) | 🏆 **#1/4** | 0.030s — 2.2x faster than mysqlclient, 5.3x faster than aiomysql |
-| **Connection Pool** (2k queries) | 🏆 **#1/2** | ~17,000 qps — 2x aiomysql's throughput |
-| **Concurrent Queries** (50 connections) | 🏆 **#1/2** | ~8,000 qps — 1.6x faster than aiomysql |
-| **Batch Insert** (10k rows) | 🏆 **#1/4** | ~107,000 rows/sec — fastest of all four drivers |
-
-The protocol core is engineered for zero waste on the hot path:
-
-- **Bulk packet parsing**: one socket read serves hundreds of row packets, parsed in a single C loop with no event-loop round-trips
-- **Pointer-based protocol reads**: integers and length-encoded values are read directly from raw memory, no `struct` calls
-- **Direct row decoding**: cell values decode straight from the receive buffer via the CPython C-API (`PyUnicode_DecodeUTF8`, `PyTuple_New`), skipping intermediate objects
-- **Zero-decode numeric/temporal columns**: `int`/`float`/`datetime` values parse directly from bytes, and dates are built with the C datetime API
-- **Escape fast path**: strings without special characters are returned as-is, no translation pass
-
-📊 **[View detailed benchmarks →](./benchmark/README.md)**
 
 ## Install
 
@@ -131,7 +110,9 @@ server-side prepared statements — no code changes needed (ORMs benefit too).
 Queries the server can't prepare fall back to the text protocol silently.
 
 ```py
-pool = await asyncmy.create_pool(stmt_cache_size=128, ...)
+pool = await asyncmy.create_pool(
+    host="localhost", user="root", password="", stmt_cache_size=128,
+)
 ```
 
 Note: with the binary protocol, `FLOAT` columns return the exact stored value
@@ -267,6 +248,128 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
+## Benchmark
+
+Measured on **2026-10-22** against local MySQL over **TCP**. The Python-driver
+suite and cross-language suite use different workloads and sampling methods;
+each comparison below keeps those settings explicit. All times are in
+**milliseconds**, lower is better.
+
+### Python driver comparison
+
+One warmup followed by **best of three runs**, using standard asyncio and
+`autocommit=True`. The dataset contains 100,000 rows; the filtered large-result
+query returns 33,334 of them.
+
+| Workload | asyncmy | mysqlclient | PyMySQL | aiomysql |
+| --- | ---: | ---: | ---: | ---: |
+| Large result set, 33,334 mixed-type rows | **29** | 60 | 112 | 122 |
+| 50 concurrent queries, one connection each | **6** | — | — | 8 |
+| 2,000 pooled queries, 5–20 connections | **56** | — | — | 202 |
+| Batch insert, 10,000 rows | **123** | 145 | 138 | **123** |
+
+asyncmy leads on result fetching, concurrent queries and pooled queries. Large
+result fetching takes about half mysqlclient's time; pooled queries deliver
+about **3.6× aiomysql's throughput**. Batch insertion is effectively tied with
+aiomysql in this run. Times are rounded to one millisecond; `—` means the
+suite does not measure that combination.
+
+The asyncmy column uses the text protocol. Its separate binary large-result
+case took **30 ms** with `stmt_cache_size=16`. This schema's text and binary
+results are close; the cross-language suite below also measures integer-heavy
+and mixed-type scans separately.
+
+Versions: asyncmy **0.2.17** (working tree), mysqlclient **2.3.0**, PyMySQL
+**1.2.3**, aiomysql **0.3.2**. See the [Python benchmark guide](./benchmark/README.md#python-driver-suite)
+for workloads and commands, and the [recorded run](./benchmark/python-results.json)
+for the console-reported timings and settings.
+
+### Cross-language comparison
+
+Same table, queries and protocol mode, comparing asyncmy with
+**go-sql-driver/mysql** and **mysql_async**. Times are the **median of 504
+samples per runtime/case**, collected over **72 rounds** with balanced client
+order. Every measured sample is retained.
+
+| Workload | asyncmy asyncio | asyncmy uvloop | Go | Rust |
+| --- | ---: | ---: | ---: | ---: |
+| 50k rows × 8 integer columns, text | **12.94** | 13.95 | 19.12 | 18.01 |
+| 50k rows × 8 integer columns, binary | 9.97 | 9.74 | 12.64 | **9.60** |
+| 50k rows × 10 mixed columns, text | 36.71 | 41.86 | 33.73 | **33.41** |
+| 50k rows × 10 mixed columns, binary | 23.56 | 23.55 | 25.49 | **20.43** |
+| Pooled 20×200 point queries, text | 51.24 | 45.03 | 34.87 | **33.49** |
+| Pooled 20×200 point queries, binary | 34.68 | **31.11** | 32.06 | 34.12 |
+
+For **pooled binary point queries**, the ordinary Cursor API with uvloop,
+`stmt_cache_size=32` and `autocommit=True` leads both native drivers:
+
+| Compared with | Mean per-round throughput advantage | 95% confidence interval |
+| --- | ---: | ---: |
+| Go | **+2.79%** | +1.65% to +3.88% |
+| Rust | **+9.37%** | +8.64% to +10.22% |
+
+These percentages average per-round throughput ratios; they are calculated
+separately from the aggregate median times above. Individual rounds overlap:
+asyncmy wins 50/72 round medians against Go and 71/72 against Rust. Its average
+advantage is positive in 11/12 balanced six-round blocks against Go and all
+12 against Rust. The confidence intervals resample those complete blocks.
+
+Both native drivers lead on text point queries, and Rust leads on mixed scans.
+The results show where asyncmy leads and where further optimization remains.
+
+### Environment and measurement details
+
+| Component | Version / setting |
+| --- | --- |
+| Hardware / OS | Apple M4 Max / macOS 27.0.1 arm64 |
+| MySQL | 26.10.0, TCP `127.0.0.1:3306` |
+| CPython / Cython | 3.15.1 / 3.3.0 |
+| uvloop | 0.23.0 |
+| Go / go-sql-driver/mysql | 1.27.3 / 1.10.1 |
+| Rust / mysql_async / Tokio | 1.99.1 / 0.37.1 / 1.54.1 |
+
+The cross-language measurement uses:
+
+- **Balanced sampling:** all six client-order permutations repeated twelve
+  times, with one warmup and seven measured samples per case in each round.
+  Clients run sequentially. Python uses one event-loop thread, Rust uses Tokio's
+  current-thread runtime, and Go sets `GOMAXPROCS(1)`; helper threads can exist.
+- **Pooled point queries:** ten prewarmed connections, 20 workers × 200 queries,
+  autocommit enabled. Each query includes acquiring a connection, executing,
+  fetching and releasing it. Binary statements are cached per connection;
+  asyncmy uses the regular Cursor API with `stmt_cache_size=32`.
+- **Complete scan results:** all 50,000 rows are fetched, materialized and
+  retained. Binary scans use an explicitly prepared statement, with preparation
+  outside timing. Temporal values include a duration for TIME in every language.
+  Python constructs `Decimal` values; Go/Rust retain DECIMAL strings, so mixed
+  materialization differs. Checksums are validated after timing; Python runs
+  cyclic garbage collection before each measured sample.
+
+The measured point-query settings are opt-in: asyncmy defaults to
+`autocommit=False` and `stmt_cache_size=0`. Use transaction settings that match
+your application. With uvloop installed, replace `asyncio.run(main())` with
+`uvloop.run(main())` after importing `uvloop`.
+
+### What makes asyncmy fast
+
+- **Bulk packet parsing:** complete row packets in the receive buffer are parsed
+  in one C loop, reducing packet objects and event-loop round-trips.
+- **Direct value decoding:** integers, floats, strings and temporal values decode
+  from wire bytes through Cython and the CPython C-API, avoiding intermediate
+  strings and general-purpose parsing where possible.
+- **Cached binary results:** prepared statements reuse per-connection state;
+  complete responses can populate Cursor rows directly after metadata checks.
+- **Cheaper pool operations:** healthy checkout avoids coroutine allocation,
+  and coalesced notifications reduce waiter scheduling work.
+- **Small-query fast paths:** scalar parameters avoid general packet-building
+  overhead, while strings without special characters skip escape translation.
+
+See the [full cross-language report](./benchmark/crosslang/README.md) for exact
+queries, source hashes, compatibility checks, confidence-interval calculation
+and reproduction commands. The [raw cross-language results](./benchmark/crosslang/results.json)
+retain all samples and separate earlier toolchains and optimization stages.
+The [benchmark overview](./benchmark/README.md) covers both suites.
 
 ## Acknowledgments
 

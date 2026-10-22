@@ -1,0 +1,154 @@
+{
+  "environment": {
+    "date": "2026-10-22",
+    "cpu": "Apple M4 Max",
+    "os": "macOS 27.0.1 arm64",
+    "mysql": "26.10.0",
+    "python": "3.15.1",
+    "cython": "3.3.0",
+    "asyncmy": "0.2.17 working tree",
+    "mysqlclient": "2.3.0",
+    "pymysql": "1.2.3",
+    "aiomysql": "0.3.2"
+  },
+  "settings": {
+    "command": "MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 MYSQL_USER=root MYSQL_PASS=123456 .venv/bin/python -m benchmark.run_all",
+    "transport": "TCP 127.0.0.1:3306",
+    "loop": "asyncio",
+    "autocommit": true,
+    "dataset_rows": 100000,
+    "warmups": 1,
+    "measured_runs": 3,
+    "statistic": "fastest of three measured runs, one suite invocation",
+    "timing_source": "console output rounded to three decimal places in seconds; converted to integer milliseconds; individual samples were not captured"
+  },
+  "results": [
+    {
+      "case": "large_resultset",
+      "driver": "asyncmy",
+      "reported_ms": 29
+    },
+    {
+      "case": "large_resultset",
+      "driver": "asyncmy-binary",
+      "reported_ms": 30
+    },
+    {
+      "case": "large_resultset",
+      "driver": "mysqlclient",
+      "reported_ms": 60
+    },
+    {
+      "case": "large_resultset",
+      "driver": "pymysql",
+      "reported_ms": 112
+    },
+    {
+      "case": "large_resultset",
+      "driver": "aiomysql",
+      "reported_ms": 122
+    },
+    {
+      "case": "concurrent",
+      "driver": "asyncmy",
+      "reported_ms": 6
+    },
+    {
+      "case": "concurrent",
+      "driver": "aiomysql",
+      "reported_ms": 8
+    },
+    {
+      "case": "pool",
+      "driver": "asyncmy",
+      "reported_ms": 56
+    },
+    {
+      "case": "pool",
+      "driver": "aiomysql",
+      "reported_ms": 202
+    },
+    {
+      "case": "batch_insert",
+      "driver": "asyncmy",
+      "reported_ms": 123
+    },
+    {
+      "case": "batch_insert",
+      "driver": "mysqlclient",
+      "reported_ms": 145
+    },
+    {
+      "case": "batch_insert",
+      "driver": "pymysql",
+      "reported_ms": 138
+    },
+    {
+      "case": "batch_insert",
+      "driver": "aiomysql",
+      "reported_ms": 123
+    }
+  ],
+  "workloads": {
+    "large_resultset": {
+      "returned_rows": 33334,
+      "binary_stmt_cache_size": 16
+    },
+    "concurrent": {
+      "queries": 50,
+      "connection_per_query": true
+    },
+    "pool": {
+      "queries": 2000,
+      "minsize": 5,
+      "maxsize": 20
+    },
+    "batch_insert": {
+      "rows": 10000
+    }
+  },
+  "reported_throughput_per_second": {
+    "concurrent": {
+      "asyncmy": 8182,
+      "aiomysql": 6387
+    },
+    "pool": {
+      "asyncmy": 35579,
+      "aiomysql": 9922
+    },
+    "batch_insert": {
+      "asyncmy": 81451,
+      "aiomysql": 81428,
+      "mysqlclient": 68784,
+      "pymysql": 72282
+    }
+  },
+  "source_sha256": {
+    "benchmark/__init__.py": "707ec532fbe19f904c5ccfeddefdcd1d43dd5a5edc43b1a7e9b0778e68a80ae5",
+    "benchmark/run_all.py": "10f1bae14154d34fbc453ddd0286854b1240e31dd6b3a78018be3b2c3b66167d",
+    "benchmark/setup.py": "6c9f88be1a38069f25483f7f804a940032d1726be60c6cf40666f9a11790584c",
+    "benchmark/large_resultset.py": "0d11978e5ebbd3e7fa4353d43146b00c26b7158c2913e7cdcb73ecafbaee15f3",
+    "benchmark/concurrent.py": "0e1b7838fd23949177c2630b77c09289b19db81c2bdde3227ac2d0a8b50f794d",
+    "benchmark/pool.py": "8d0a43c184f32f42d5317c842139a8538836518209d6d3ea7040c0d49c4328bd",
+    "benchmark/batch_insert.py": "2eca69c234efa5c94fc01a82304a74bf3c8d0d9a91241143eceb4125b63fc3da",
+    "asyncmy/connection.pyx": "aadc97d1957039059a5b19a1723714e5db504d78f5120e0318ba4b1bc9f50d55",
+    "asyncmy/connection.pxd": "2edd8210101c8a45a049f9d2420056cd4eb7e9f18e71069597c938fd24945844",
+    "asyncmy/cursors.pyx": "931c5d25462202b5d2a6c124df54a70eb831112c616f76737d0cb5077b35a22c",
+    "asyncmy/contexts.py": "f8be7927fd82b6da96e93bef9f9825dec4e821749c2f7a7cc843bc7dd699d3f4",
+    "asyncmy/pool.pyx": "cbbd22d17d6681f8bc4c8564265f6e7bedb3c0768799695c6063b79516184b29",
+    "asyncmy/protocol.pyx": "c4d9d21dd71bf31a937335c10ce790f4d4f1a9a591e7794191c72c15f332a8c3",
+    "asyncmy/protocol.pxd": "276f5fd65d20238ee3ca5db3daa94959dafa6ca631b022015614ba419c11f134",
+    "benchmark/crosslang/python_bench.py": "c17340dc1b53675994985243f9cb17d5e3c31968b19a62db452f828ec8d6a3eb",
+    "benchmark/crosslang/go/main.go": "b280c08bd26b91c038ac0f8c5d6a78ed0ed82f25e1e729adfa48d696adcc3b80",
+    "benchmark/crosslang/go/go.mod": "46085a2821303899071dedbd083e9590f16ec0fd980605d2ff76b7e6ff36b94e",
+    "benchmark/crosslang/go/go.sum": "55e9a20ed959f1f0b30aaaac88158cb6e5225eef28846b45329b207dcecee876",
+    "benchmark/crosslang/rust/src/main.rs": "ae67c46ec173a538e9086446abc6f87555f98c3cf5e9c297180d2c79adc424d5",
+    "benchmark/crosslang/rust/Cargo.toml": "d12d9a84b16d0ccccc3b919d02787ca71d8a80826f06f22569732a58dbb95cac",
+    "benchmark/crosslang/rust/Cargo.lock": "1feb192d88a6e3b18d024ed057173a01aad1b90c9e8871175973239cf31e1ff7",
+    "benchmark/crosslang/rust/rust-toolchain.toml": "ca67e66659a82661386e5a08471c913cb8b3f7c7ce37592207d3f513589a41c2",
+    "pyproject.toml": "722ba8c2a4ec1b5753bbe809dfb6111e248cb54cf39cbb851bed9304bc9b69a1",
+    "uv.lock": "1b598580b399591c21640199b0c044640ad64ad0e274b0142e068618cf52e40e",
+    "build_cython.py": "909433041eb98d8c48e81f034bfc43740930e63d72101682eb672e4a4d9fea00",
+    "asyncmy/_compat.pxd": "c7fb7c8d026218a690ae96f2f2ae9435a219701bbe6e700d73e24644f3ae2f15"
+  }
+}
