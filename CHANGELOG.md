@@ -2,6 +2,11 @@
 
 ## 0.2
 
+### 0.2.17
+
+- Build wheels for Python 3.15 and free-threaded 3.15t. cibuildwheel 4 no longer builds
+  free-threaded 3.13t, so 3.13t wheels are dropped and pip builds asyncmy from the sdist there.
+
 ### 0.2.16
 
 - Make `Connection.ensure_closed()` tear the connection down locally instead of raising

@@ -44,7 +44,7 @@ jobs:
       matrix:
         # 3.14t verifies the freethreading_compatible declarations: without
         # them, importing asyncmy re-enables the GIL for the whole process.
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "3.15"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -70,7 +70,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.14"]
+        python-version: ["3.9", "3.15"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

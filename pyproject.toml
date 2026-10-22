@@ -57,11 +57,6 @@ script = "build_cython.py"
 build-backend = "poetry.core.masonry.api"
 requires = ["poetry-core", "setuptools", "cython>=3.1"]  # freethreading_compatible directive
 
-[tool.cibuildwheel]
-# The modules declare freethreading_compatible, and CI gates on 3.14t, so ship
-# wheels for free-threaded builds too — otherwise those users compile from sdist.
-enable = ["cpython-freethreading"]
-
 [tool.pytest.ini_options]
 asyncio_mode = 'auto'
 
