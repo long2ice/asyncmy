@@ -86,6 +86,39 @@ async def test_packet_read_grows_and_compacts_receive_buffer():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("consumed_prefix", [False, True])
+async def test_packet_read_from_multiple_tls_records(consumed_prefix):
+    conn = Connection()
+    proto = _MySQLProtocol(asyncio.get_running_loop())
+    conn._proto = proto
+    conn._next_seq_id = 0
+    if consumed_prefix:
+        _feed_protocol(proto, b"\x02\x00\x00\x00ok")
+        assert (await conn.read_packet()).get_all_data() == b"ok"
+
+    payloads = [b"\x01\x03", b"\x00\x00\x00\x02\x00\x00\x00"]
+    records = [
+        len(payload).to_bytes(3, "little") + bytes([conn._next_seq_id + i]) + payload
+        for i, payload in enumerate(payloads)
+    ]
+    buffer = proto.get_buffer(sum(map(len, records)))
+    offset = 0
+    for record in records:
+        # asyncio's TLS transport fills one application buffer with multiple
+        # SSL reads. Later reads receive a slice of the original buffer.
+        target = buffer if offset == 0 else buffer[offset:]
+        target[: len(record)] = record
+        offset += len(record)
+        del target
+    del buffer
+    proto.buffer_updated(offset)
+
+    for payload in payloads:
+        assert (await conn.read_packet()).get_all_data() == payload
+    assert proto.pos == proto.length
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("sequence", [0, 2])
 async def test_packet_reader_checks_sequence_number(sequence):
     conn = Connection()

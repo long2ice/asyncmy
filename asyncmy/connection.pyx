@@ -228,7 +228,9 @@ class _MySQLProtocol(_ProtocolState, asyncio.BufferedProtocol):
             if sizehint > 0 and sizehint > grow:
                 grow = sizehint
             buffer.extend(bytes(grow))
-        return memoryview(buffer)[length:] if length else buffer
+        # TLS transports may fill successive slices with separate SSL reads.
+        # A bytearray slice is a copy, so even an empty buffer needs a view.
+        return memoryview(buffer)[length:]
 
     @cython.locals(self=_ProtocolState)
     def buffer_updated(self, nbytes):
