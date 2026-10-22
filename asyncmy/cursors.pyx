@@ -142,6 +142,10 @@ cdef class Cursor:
         current_result = self._result
         if current_result is None or current_result is not conn._result:
             return None
+        if unbuffered and current_result.unbuffered_active:
+            # The EOF packet carries has_next, so drain this result before
+            # deciding whether there is another one (including during close).
+            await current_result._finish_unbuffered_query()
         if not current_result.has_next:
             return None
         self._result = None
@@ -597,9 +601,6 @@ cdef class SSCursor(Cursor):
         conn = self.connection
         if conn is None:
             return
-
-        if self._result is not None and self._result is conn._result:
-            await self._result._finish_unbuffered_query()
 
         try:
             while await self.nextset():

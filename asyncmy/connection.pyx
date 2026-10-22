@@ -1177,7 +1177,7 @@ class Connection:
         if self._result is not None:
             if self._result.unbuffered_active:
                 warnings.warn("Previous unbuffered result was left incomplete")
-                self._result._finish_unbuffered_query()
+                await self._result._finish_unbuffered_query()
             while self._result.has_next:
                 await self.next_result()
             self._result = None
@@ -1675,8 +1675,10 @@ cdef class MySQLResult:
         self.unbuffered_active = False
 
     def __del__(self):
-        if self.unbuffered_active:
-            self._finish_unbuffered_query()
+        if self.unbuffered_active and self.connection is not None:
+            # A finalizer cannot await the remaining packets. Discard the
+            # physical connection instead of leaving an unfinished stream.
+            self.connection.close()
 
     async def read(self):
         try:

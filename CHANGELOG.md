@@ -4,6 +4,11 @@
 
 ### 0.2.17
 
+- Preserve negative `timedelta` values, including subsecond durations, when binding
+  text-protocol parameters to `TIME` columns (#166).
+- Drain every unread streaming result before advancing, closing the cursor, or sending
+  another command. Discard abandoned streaming connections during finalization without
+  creating unawaited cleanup coroutines (#165).
 - Build wheels for Python 3.15 and free-threaded 3.15t. cibuildwheel 4 no longer builds
   free-threaded 3.13t, so 3.13t wheels are dropped and pip builds asyncmy from the sdist there.
 
