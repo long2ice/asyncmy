@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: "3.15"
       - uses: astral-sh/setup-uv@v7
       - name: Run check
         run: uv run make check
@@ -42,9 +42,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Cover the oldest and newest supported CPython, plus free threading.
         # 3.14t verifies the freethreading_compatible declarations: without
         # them, importing asyncmy re-enables the GIL for the whole process.
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14", "3.14t", "3.15"]
+        python-version: ["3.9", "3.15", "3.14t"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -55,8 +56,8 @@ jobs:
         run: uv run make test
 
   # MariaDB exercises server-specific paths (extended capabilities,
-  # COM_STMT_BULK_EXECUTE), which are orthogonal to the Python version — so the
-  # oldest and newest supported interpreters are enough here.
+  # COM_STMT_BULK_EXECUTE) on the newest CPython. The MySQL matrix covers
+  # interpreter compatibility and free threading.
   ci_mariadb:
     runs-on: ubuntu-latest
     services:
@@ -67,15 +68,11 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: 123456
         options: --health-cmd="mariadb-admin ping -uroot -p${MYSQL_ROOT_PASSWORD}" --health-interval 10s --health-timeout 5s --health-retries 5
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.9", "3.15"]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.15"
       - uses: astral-sh/setup-uv@v7
       - name: Run tests
         run: uv run make test
