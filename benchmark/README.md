@@ -31,6 +31,8 @@ Measured on **2026-10-22** against the existing local MySQL instance over TCP.
 Times are **milliseconds**, lower is better. Each value is the median of all
 **504 timed samples** per case, with no samples discarded.
 
+![Text and binary timings for asyncmy, Go and Rust across all six workloads; lower is better](../images/benchmark-crosslang.svg)
+
 | Scenario | asyncmy asyncio | asyncmy uvloop | Go | Rust |
 | --- | ---: | ---: | ---: | ---: |
 | 50k rows × 8 integer columns, text | 12.94 | 13.95 | 19.12 | 18.01 |
@@ -46,6 +48,8 @@ Mean per-round throughput advantage is **2.79% over Go** (95% CI
 **1.65–3.88%**) and **9.37% over Rust** (95% CI **8.64–10.22%**). Individual
 rounds overlap; the intervals describe the average advantage, calculated by
 resampling balanced six-round blocks.
+
+![Binary point-query throughput advantage with 95% confidence intervals](../images/benchmark-point-binary.svg)
 
 Both native drivers lead on text point queries, and Rust leads on mixed scans.
 In mixed scans, Python constructs `Decimal` values while Go/Rust retain DECIMAL
@@ -86,6 +90,8 @@ TCP, CPython 3.15.1, Cython 3.3.0 and standard asyncio. Drivers: asyncmy 0.2.17
 
 Times are milliseconds rounded to the nearest millisecond from the runner's
 console output. Each entry is the fastest of three runs after one warmup.
+
+![Python MySQL driver timings across four workloads; lower is better](../images/benchmark-python.svg)
 
 | Workload | asyncmy | mysqlclient | PyMySQL | aiomysql |
 | --- | ---: | ---: | ---: | ---: |
@@ -178,6 +184,25 @@ MEASURED_RUNS = 3  # Fastest measured run is reported.
 The Python-suite pool settings are in [`pool.py`](./pool.py): minimum 5,
 maximum 20 connections and 2,000 queries. These differ from the cross-language
 suite's fixed ten-connection pool and 4,000 point queries.
+
+## Regenerate the charts
+
+The SVG charts are generated from [python-results.json](./python-results.json)
+and [crosslang/results.json](./crosslang/results.json). They use independent
+zero-based time axes for each workload; the throughput chart uses the recorded
+per-round advantage and its block-bootstrap confidence interval. Tables remain
+alongside the charts for exact values and accessible text.
+
+From the repository root:
+
+```bash
+uv run scripts/plot_benchmarks.py
+uv run scripts/plot_benchmarks.py --check
+```
+
+The script pins Matplotlib in an isolated uv environment. It reads the recorded
+data without running database workloads or changing the driver's dependencies.
+To export PNGs, add `--format png --output-dir /tmp/asyncmy-charts`.
 
 ## Contributing
 

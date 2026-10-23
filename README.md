@@ -262,6 +262,8 @@ One warmup followed by **best of three runs**, using standard asyncio and
 `autocommit=True`. The dataset contains 100,000 rows; the filtered large-result
 query returns 33,334 of them.
 
+![Python MySQL driver timings across four workloads; lower is better](./images/benchmark-python.svg)
+
 | Workload | asyncmy | mysqlclient | PyMySQL | aiomysql |
 | --- | ---: | ---: | ---: | ---: |
 | Large result set, 33,334 mixed-type rows | **29** | 60 | 112 | 122 |
@@ -292,6 +294,8 @@ Same table, queries and protocol mode, comparing asyncmy with
 samples per runtime/case**, collected over **72 rounds** with balanced client
 order. Every measured sample is retained.
 
+![Text and binary timings for asyncmy, Go and Rust across all six workloads; lower is better](./images/benchmark-crosslang.svg)
+
 | Workload | asyncmy asyncio | asyncmy uvloop | Go | Rust |
 | --- | ---: | ---: | ---: | ---: |
 | 50k rows × 8 integer columns, text | **12.94** | 13.95 | 19.12 | 18.01 |
@@ -303,6 +307,8 @@ order. Every measured sample is retained.
 
 For **pooled binary point queries**, the ordinary Cursor API with uvloop,
 `stmt_cache_size=32` and `autocommit=True` leads both native drivers:
+
+![asyncmy with uvloop binary point-query throughput advantage over Go and Rust, with 95% confidence intervals](./images/benchmark-point-binary.svg)
 
 | Compared with | Mean per-round throughput advantage | 95% confidence interval |
 | --- | ---: | ---: |

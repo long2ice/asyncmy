@@ -21,6 +21,8 @@ one warmup and seven timed runs per case. Clients run sequentially. Python uses
 one event-loop thread, Rust uses Tokio's current-thread runtime, and Go sets
 `GOMAXPROCS(1)`; runtimes may also use helper threads. MySQL runs normally.
 
+![Text and binary timings for asyncmy, Go and Rust across all six workloads; lower is better](../../images/benchmark-crosslang.svg)
+
 | Scenario | asyncmy asyncio | asyncmy uvloop | Go | Rust |
 | --- | ---: | ---: | ---: | ---: |
 | 50k rows × 8 integer columns, text | 12.94 | 13.95 | 19.12 | 18.01 |
@@ -36,6 +38,8 @@ interval are **2.79% [1.65%, 3.88%] over Go** and
 **9.37% [8.64%, 10.22%] over Rust**. These intervals resample complete balanced
 six-round blocks, preserving client-order balance and short-term variation
 (12 blocks, 100,000 bootstrap draws, seed 20261022).
+
+![Binary point-query throughput advantage with 95% confidence intervals](../../images/benchmark-point-binary.svg)
 
 Individual round medians overlap: asyncmy wins 50/72 rounds against Go and
 71/72 against Rust. Its average advantage is positive in 11/12 balanced blocks
