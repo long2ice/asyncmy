@@ -25,28 +25,6 @@
 pip install asyncmy
 ```
 
-### Windows
-
-asyncmy uses Cython extensions; on Windows you need **Microsoft C++ Build Tools** to build them.
-
-1. Download [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/).
-2. Open CMD as Administrator (recommended) and `cd` to the folder **where** the installer was downloaded.
-3. Rename the installer (e.g. `vs_buildtools__XXXXXXXXX.XXXXXXXXXX.exe`) to `vs_buildtools.exe` for convenience.
-4. Run (ensure ~5–6GB free disk space):
-
-   ```bash
-   vs_buildtools.exe --norestart --passive --downloadThenInstall --includeRecommended --add Microsoft.VisualStudio.Workload.NativeDesktop --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Workload.MSBuildTools
-   ```
-
-5. Wait for installation to complete, then restart your computer.
-6. Install asyncmy:
-
-   ```bash
-   pip install asyncmy
-   ```
-
-You can uninstall the Build Tools afterward if desired.
-
 ## Usage
 
 ### `connect`
