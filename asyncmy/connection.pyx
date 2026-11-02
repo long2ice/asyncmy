@@ -210,7 +210,7 @@ class _MySQLProtocol(_ProtocolState, asyncio.BufferedProtocol):
 
     def get_buffer(self, sizehint):
         cdef _ProtocolState state = self
-        cdef bytearray buffer = state.buffer
+        cdef bytearray buffer = state.buffer, grown
         cdef Py_ssize_t length = state.length, pos = state.pos, grow
         if pos:
             # compact the consumed prefix
@@ -223,11 +223,19 @@ class _MySQLProtocol(_ProtocolState, asyncio.BufferedProtocol):
             # shrink an oversized buffer left over from a huge result set
             state.buffer = buffer = bytearray(READ_CHUNK_SIZE)
         elif len(buffer) - length < 4096:
-            # grow geometrically so huge packets stay O(n)
+            # Grow geometrically so huge packets stay O(n). Never resize the
+            # live buffer in place: asyncio's buffered-protocol feeders (notably
+            # the Windows ProactorEventLoop one) still hold the view returned by
+            # the previous get_buffer() while asking for the next one, and
+            # resizing an exported bytearray raises BufferError. Allocate a
+            # replacement and copy the unconsumed bytes into it instead.
             grow = len(buffer)
             if sizehint > 0 and sizehint > grow:
                 grow = sizehint
-            buffer.extend(bytes(grow))
+            grown = bytearray(len(buffer) + grow)
+            if length:
+                grown[:length] = memoryview(buffer)[:length]
+            state.buffer = buffer = grown
         # TLS transports may fill successive slices with separate SSL reads.
         # A bytearray slice is a copy, so even an empty buffer needs a view.
         return memoryview(buffer)[length:]

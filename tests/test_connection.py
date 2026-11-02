@@ -85,6 +85,41 @@ async def test_packet_read_grows_and_compacts_receive_buffer():
         await asyncio.gather(reader, return_exceptions=True)
 
 
+def _feed_protocol_like_transport(proto, data):
+    # Mirrors asyncio.protocols._feed_data_to_buffered_proto (used by the
+    # Windows ProactorEventLoop): the view returned by the previous call is
+    # still referenced when the next get_buffer() is requested.
+    while data:
+        view = proto.get_buffer(len(data))
+        count = min(len(view), len(data))
+        view[:count] = data[:count]
+        proto.buffer_updated(count)
+        data = data[count:]
+
+
+@pytest.mark.asyncio
+async def test_packet_read_while_transport_holds_previous_view():
+    conn = Connection()
+    proto = _MySQLProtocol(asyncio.get_running_loop())
+    conn._proto = proto
+    conn._next_seq_id = 0
+    # A full ProactorEventLoop read arrives while part of the packet is already
+    # buffered: the next get_buffer() must grow without resizing the live view.
+    payload = b"x" * (256 * 1024 + 100)
+    wire = len(payload).to_bytes(3, "little") + b"\x00" + payload
+    _feed_protocol_like_transport(proto, wire[:100])
+    reader = asyncio.create_task(conn.read_packet())
+    try:
+        await asyncio.sleep(0)
+        _feed_protocol_like_transport(proto, wire[100:])
+        packet = await asyncio.wait_for(reader, timeout=5)
+        assert packet.get_all_data() == payload
+        assert proto.pos == proto.length
+    finally:
+        reader.cancel()
+        await asyncio.gather(reader, return_exceptions=True)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("consumed_prefix", [False, True])
 async def test_packet_read_from_multiple_tls_records(consumed_prefix):
