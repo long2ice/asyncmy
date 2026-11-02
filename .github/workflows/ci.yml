@@ -30,7 +30,8 @@ jobs:
         run: uv run make check
 
   ci_mysql:
-    runs-on: ubuntu-latest
+    name: ci_mysql (${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     services:
       database:
         image: mysql:latest
@@ -45,7 +46,15 @@ jobs:
         # Cover the oldest and newest supported CPython, plus free threading.
         # 3.14t verifies the freethreading_compatible declarations: without
         # them, importing asyncmy re-enables the GIL for the whole process.
-        python-version: ["3.9", "3.15", "3.14t"]
+        # ubuntu-latest is 26.04 now and actions/setup-python has no 3.9 build
+        # there, so keep the oldest supported interpreter on 24.04.
+        include:
+          - python-version: "3.9"
+            os: ubuntu-24.04
+          - python-version: "3.15"
+            os: ubuntu-latest
+          - python-version: "3.14t"
+            os: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
