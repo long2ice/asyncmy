@@ -19,7 +19,7 @@
 
 ## Install
 
-**Requirements:** Python ≥ 3.9
+**Requirements:** Python ≥ 3.10
 
 ```bash
 pip install asyncmy

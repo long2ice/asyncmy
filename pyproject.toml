@@ -5,7 +5,7 @@ keywords = ["driver", "asyncio", "mysql"]
 license = "Apache-2.0"
 name = "asyncmy"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = []
 version = "0.2.17"
 
