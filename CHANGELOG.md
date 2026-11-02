@@ -2,6 +2,16 @@
 
 ## 0.2
 
+### 0.2.18
+
+- Fix `BufferError: Existing exports of data` when fetching a row larger than 256 KiB on
+  Windows (`ProactorEventLoop`). The receive buffer now grows into a replacement buffer
+  instead of resizing a bytearray the transport still holds (#170).
+- Keep the receive buffer shared across TLS reads, so successive SSL records fill one
+  contiguous buffer instead of being split across copies.
+- Optimize pooled prepared-query execution and refresh the benchmark suite.
+- Drop Python 3.9 support; asyncmy now requires Python 3.10 or newer.
+
 ### 0.2.17
 
 - Preserve negative `timedelta` values, including subsecond durations, when binding
