@@ -266,7 +266,14 @@ class _MySQLProtocol(_ProtocolState, asyncio.BufferedProtocol):
         cdef _ProtocolState state = self
         state.eof = True
         if exc is not None:
-            state.exc = exc
+            # Keep the error, not its traceback. The traceback's frames reference
+            # the transport (for TLS, asyncio's SSLProtocol and its buffers), and
+            # the transport references this protocol. Storing the exception as is
+            # creates a reference cycle, so every dropped connection stays alive
+            # until a full gc pass. Only str(exc) is used afterwards.
+            state.exc = exc.with_traceback(None)
+            exc.__context__ = None
+            exc.__cause__ = None
         self.transport = None
         for waiter in (self._read_waiter, self._drain_waiter):
             if waiter is not None and not waiter.done():
