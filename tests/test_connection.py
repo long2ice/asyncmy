@@ -36,6 +36,33 @@ def _feed_protocol(proto, data):
 
 
 @pytest.mark.asyncio
+async def test_connection_lost_drops_exception_traceback():
+    proto = _MySQLProtocol(asyncio.get_running_loop())
+
+    def fail(held):
+        try:
+            raise OSError("cause")
+        except OSError:
+            raise ssl_module.SSLError("lost")
+
+    try:
+        fail(proto)
+    except ssl_module.SSLError as e:
+        exc = e
+    assert exc.__traceback__ is not None and exc.__context__ is not None
+
+    proto.connection_lost(exc)
+
+    # The traceback frames (which hold the transport and, through it, the
+    # protocol) must not be kept, or every dropped connection waits for gc.
+    assert proto.exc is exc
+    assert proto.exc.__traceback__ is None
+    assert proto.exc.__context__ is None
+    assert proto.exc.__cause__ is None
+    assert "lost" in str(proto.exc)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("split", range(1, 12))
 async def test_packet_read_across_header_and_payload_fragments(split):
     conn = Connection()
