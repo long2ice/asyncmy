@@ -7,7 +7,7 @@
 - Drop the traceback, context and cause of the exception kept by `connection_lost`. They
   reference the transport, which references the protocol, so every dropped connection
   (protocol, buffers and, for TLS, the SSL transport and its state) stayed alive until a full
-  gc pass. Idle processes that recycle pooled TLS connections grew steadily.
+  gc pass. Idle processes that recycle pooled TLS connections grew steadily (#171).
 - Fix `BufferError: Existing exports of data` when fetching a row larger than 256 KiB on
   Windows (`ProactorEventLoop`). The receive buffer now grows into a replacement buffer
   instead of resizing a bytearray the transport still holds (#170).
