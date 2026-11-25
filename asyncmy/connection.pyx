@@ -2094,12 +2094,15 @@ cdef class MySQLResult:
         self._read_ok_packet(ok_packet)
 
     def _check_packet_is_eof(self, packet):
+        cdef bytes data
         if self._deprecate_eof:
             # Result sets end with an OK packet carrying a 0xFE header.
-            # A row packet can never start with 0xFE at payload < 16MB (that
-            # first byte would be an 8-byte length-encoded integer marker,
-            # implying a >=16MB packet).
-            if not packet.is_auth_switch_request():  # first byte != 0xFE
+            # A row packet starting with 0xFE encodes an 8-byte length
+            # (>= 16 MiB), so its payload is >= MAX_PACKET_LEN, whereas a
+            # terminating OK packet is always shorter than MAX_PACKET_LEN
+            # (and at least 7 bytes under CLIENT_PROTOCOL_41).
+            data = packet.get_all_data()
+            if not (7 <= len(data) < MAX_PACKET_LEN and data[0] == 0xFE):
                 return False
             packet.advance(1)
             packet.read_length_encoded_integer()  # affected rows

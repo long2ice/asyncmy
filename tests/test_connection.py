@@ -512,3 +512,174 @@ async def test_full_auth_over_tls():
             raise
         pytest.skip("server does not accept TLS connections")
     await connection.ensure_closed()
+
+
+def _wire_split_packet(payload: bytes, seq: int) -> tuple[bytes, int]:
+    max_len = 0xFFFFFF
+    chunks = []
+    offset = 0
+    while True:
+        chunk = payload[offset : offset + max_len]
+        chunks.append(len(chunk).to_bytes(3, "little") + bytes([seq & 0xFF]) + chunk)
+        seq = (seq + 1) & 0xFF
+        offset += len(chunk)
+        if len(chunk) < max_len:
+            break
+    return b"".join(chunks), seq
+
+
+def _column_def_packet(name: bytes, field_type: int, charsetnr: int) -> bytes:
+    def lenenc(value: bytes) -> bytes:
+        return bytes([len(value)]) + value
+
+    return (
+        lenenc(b"def")
+        + lenenc(b"")
+        + lenenc(b"")
+        + lenenc(b"")
+        + lenenc(name)
+        + lenenc(name)
+        + b"\x0c"
+        + charsetnr.to_bytes(2, "little")
+        + (0xFFFFFFFF).to_bytes(4, "little")
+        + bytes([field_type])
+        + (0).to_bytes(2, "little")
+        + b"\x00\x00\x00"
+    )
+
+
+def test_check_packet_is_eof_deprecate_eof_boundaries():
+    from asyncmy.connection import MySQLResult
+    from asyncmy.protocol import MysqlPacket
+
+    conn = Connection()
+    conn._deprecate_eof = True
+
+    result = MySQLResult(conn)
+    assert result._check_packet_is_eof(MysqlPacket(b"\xfe\x00\x00\x0a\x00\x03\x00", "utf8"))
+    assert result.server_status == 0x000A
+    assert result.warning_count == 3
+    assert result.has_next == 8
+
+    # OK packets carrying info/session state may exceed 9 bytes.
+    result = MySQLResult(conn)
+    assert result._check_packet_is_eof(
+        MysqlPacket(b"\xfe\x00\x00\x02\x00\x01\x00session-info", "utf8")
+    )
+    assert result.server_status == 0x0002
+    assert result.warning_count == 1
+    assert result.has_next == 0
+
+    # Too short to be a PROTOCOL_41 OK packet, or >= MAX_PACKET_LEN (large row).
+    for payload in [
+        b"",
+        b"\xfe",
+        b"\xfe\x00\x00\x02\x00",
+        b"\xfe" + b"\x00" * (0xFFFFFF - 1),
+        b"\xfe" + (2**24).to_bytes(8, "little") + b"x" * (2**24),
+    ]:
+        result = MySQLResult(conn)
+        assert not result._check_packet_is_eof(MysqlPacket(payload, "utf8"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["buffered", "unbuffered", "unbuffered_drain"])
+async def test_deprecate_eof_large_first_column_row_wire(mode):
+    from asyncmy.connection import MySQLResult
+    from asyncmy.constants.FIELD_TYPE import LONG, LONG_BLOB
+
+    size = 2**24
+    conn = Connection()
+    proto = _MySQLProtocol(asyncio.get_running_loop())
+    conn._proto = proto
+    conn._next_seq_id = 1
+    conn._deprecate_eof = True
+
+    row1 = b"\xfe" + size.to_bytes(8, "little") + b"x" * size + b"\x011"
+    row2 = b"\x05small\x012"
+    eof_ok = b"\xfe\x00\x00\x02\x00\x00\x00extra-info"
+    payloads = [
+        b"\x02",  # 2 columns
+        _column_def_packet(b"v", LONG_BLOB, 45),
+        _column_def_packet(b"id", LONG, 63),
+        row1,
+        row2,
+        eof_ok,
+    ]
+    wire = bytearray()
+    seq = 1
+    for payload in payloads:
+        part, seq = _wire_split_packet(payload, seq)
+        wire.extend(part)
+    next_stmt_packet = b"\x02\x00\x00\x01ok"
+    _feed_protocol(proto, bytes(wire) + next_stmt_packet)
+
+    result = MySQLResult(conn)
+    if mode == "buffered":
+        await result.read()
+        assert len(result.rows) == 2
+        assert len(result.rows[0][0]) == size
+        assert result.rows[0][0][:4] == "xxxx"
+        assert result.rows[0][0][-4:] == "xxxx"
+        assert result.rows[0][1] == 1
+        assert result.rows[1] == ("small", 2)
+    elif mode == "unbuffered":
+        await result.init_unbuffered_query()
+        first = await result._read_rowdata_packet_unbuffered()
+        second = await result._read_rowdata_packet_unbuffered()
+        end = await result._read_rowdata_packet_unbuffered()
+        assert len(first[0]) == size
+        assert first[1] == 1
+        assert second == ("small", 2)
+        assert end is None
+        assert not result.unbuffered_active
+    else:
+        await result.init_unbuffered_query()
+        await result._finish_unbuffered_query()
+        assert not result.unbuffered_active
+
+    # The terminator was consumed cleanly and the next command stays in sync.
+    assert conn._next_seq_id == seq
+    conn._next_seq_id = 1
+    assert (await conn.read_packet()).get_all_data() == b"ok"
+    assert proto.pos == proto.length
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cursor_name", ["Cursor", "SSCursor"])
+async def test_large_first_column_with_deprecate_eof(cursor_name):
+    from asyncmy.cursors import Cursor, SSCursor
+
+    cursor_cls = Cursor if cursor_name == "Cursor" else SSCursor
+    size = 2**24  # first column >= 16 MiB starts with 0xFE length prefix
+
+    conn = Connection(**connection_kwargs)
+    await conn.connect()
+    try:
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT @@max_allowed_packet")
+            max_allowed_packet = (await cursor.fetchone())[0]
+        if max_allowed_packet <= size + 1024:
+            pytest.skip(f"max_allowed_packet ({max_allowed_packet}) too small for >=16 MiB row")
+
+        sql = f"SELECT REPEAT('x', {size}) AS v, 1 AS id UNION ALL SELECT 'small' AS v, 2 AS id"
+        async with conn.cursor(cursor_cls) as cursor:
+            await cursor.execute(sql)
+            rows = await cursor.fetchall()
+            assert len(rows) == 2
+            assert len(rows[0][0]) == size
+            assert rows[0][1] == 1
+            assert rows[1] == ("small", 2)
+
+            await cursor.execute("SELECT 1")
+            assert list(await cursor.fetchall()) == [(1,)]
+
+        if cursor_cls is SSCursor:
+            # Closing an unbuffered cursor early must drain past >=16 MiB rows.
+            async with conn.cursor(SSCursor) as cursor:
+                await cursor.execute(sql)
+            async with conn.cursor() as cursor:
+                await cursor.execute("SELECT 1")
+                assert await cursor.fetchone() == (1,)
+    finally:
+        await conn.ensure_closed()
