@@ -7,14 +7,20 @@
 # Connection/Cursor safe to share between threads.
 
 from cpython cimport datetime
-from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE
+from cpython.bytearray cimport PyByteArray_AS_STRING, PyByteArray_GET_SIZE, PyByteArray_Resize
 from cpython.bytes cimport (PyBytes_AS_STRING, PyBytes_FromStringAndSize,
                             PyBytes_GET_SIZE)
-from cpython.ref cimport Py_INCREF
+from cpython.dict cimport PyDict_SetItem
+from cpython.float cimport PyFloat_FromDouble
+from cpython.list cimport PyList_GET_ITEM, PyList_New, PyList_SET_ITEM
 from cpython.long cimport PyLong_AsLongLongAndOverflow, PyLong_AsUnsignedLongLong
-from cpython.tuple cimport PyTuple_New, PyTuple_SET_ITEM
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_INCREF
+from cpython.tuple cimport PyTuple_GET_ITEM, PyTuple_New, PyTuple_SET_ITEM
 from cpython.unicode cimport PyUnicode_DecodeASCII, PyUnicode_DecodeUTF8
-from libc.string cimport memchr, memcmp, memcpy
+from libc.stdio cimport snprintf
+from libc.stdlib cimport free, malloc
+from libc.string cimport memchr, memcmp, memcpy, strchr, strlen
 
 from decimal import Decimal
 
@@ -22,13 +28,292 @@ from .constants.FIELD_TYPE import VAR_STRING
 from .constants.SERVER_STATUS import SERVER_MORE_RESULTS_EXISTS
 
 include "charset.pxd"
-from . import errors, structs
+from . import converters, errors, structs
+
+cdef extern from "Python.h":
+    double PyOS_string_to_double(const char *s, char **endptr, PyObject *overflow_exception)
+    char* PyOS_double_to_string(
+        double val, char format_code, int precision, int flags, int *type
+    )
+    void PyMem_Free(void *p)
+    object PyObject_CallOneArg(object callable, object arg)
+    PyObject* PyErr_Occurred()
+    void PyErr_Clear()
+    const char* PyUnicode_AsUTF8AndSize(object unicode, Py_ssize_t *size)
+    bint PyUnicode_IS_ASCII(object unicode)
+
+cdef extern from *:
+    """
+    static inline PyObject* asyncmy_proto_dict_new_presized(Py_ssize_t minused) {
+    #if CYTHON_COMPILING_IN_CPYTHON && !defined(Py_LIMITED_API)
+        return _PyDict_NewPresized(minused);
+    #else
+        return PyDict_New();
+    #endif
+    }
+    """
+    dict asyncmy_proto_dict_new_presized(Py_ssize_t minused)
 
 datetime.import_datetime()
+
+cdef object _convert_datetime = converters.convert_datetime
+cdef object _convert_date = converters.convert_date
+cdef object _convert_timedelta = converters.convert_timedelta
+cdef object _convert_time = converters.convert_time
+cdef object _escape_float = converters.escape_float
 
 # Length-coded integer markers
 # NULL_COLUMN = 251, UNSIGNED_CHAR_COLUMN = 251, UNSIGNED_SHORT_COLUMN = 252,
 # UNSIGNED_INT24_COLUMN = 253, UNSIGNED_INT64_COLUMN = 254
+
+
+cdef inline int _p2(const unsigned char *s) noexcept:
+    if s[0] < 48 or s[0] > 57 or s[1] < 48 or s[1] > 57:
+        return -1
+    return (s[0] - 48) * 10 + (s[1] - 48)
+
+
+cdef inline int _p4(const unsigned char *s) noexcept:
+    cdef int i, v = 0
+    for i in range(4):
+        if s[i] < 48 or s[i] > 57:
+            return -1
+        v = v * 10 + (s[i] - 48)
+    return v
+
+
+cdef inline int _pfrac(const unsigned char *s, Py_ssize_t n) noexcept:
+    cdef int v = 0
+    cdef Py_ssize_t i = 0
+    while i < n and i < 6:
+        if s[i] < 48 or s[i] > 57:
+            return -1
+        v = v * 10 + (s[i] - 48)
+        i += 1
+    while i < 6:
+        v *= 10
+        i += 1
+    return v
+
+
+cdef inline int _days_in_month(int year, int month) noexcept:
+    if month == 2:
+        if (year % 4 == 0 and year % 100 != 0) or year % 400 == 0:
+            return 29
+        return 28
+    if month == 4 or month == 6 or month == 9 or month == 11:
+        return 30
+    return 31
+
+
+cdef object _parse_text_float(const unsigned char *p, Py_ssize_t length):
+    cdef char buf[64]
+    cdef char *end = NULL
+    cdef double val
+    if 0 < length < 64 and memchr(p, 0, length) == NULL:
+        memcpy(buf, p, length)
+        buf[length] = 0
+        val = PyOS_string_to_double(buf, &end, NULL)
+        if end == buf + length and (val != -1.0 or PyErr_Occurred() == NULL):
+            return PyFloat_FromDouble(val)
+        if PyErr_Occurred() != NULL:
+            PyErr_Clear()
+    return float(PyBytes_FromStringAndSize(<const char *> p, length))
+
+
+cdef object _parse_text_datetime(const unsigned char *s, Py_ssize_t n):
+    cdef int b_year, b_month, b_day, b_hour, b_minute, b_second, b_usec
+    if (
+        n >= 19
+        and s[4] == 45 and s[7] == 45
+        and (s[10] == 32 or s[10] == 84)
+        and s[13] == 58 and s[16] == 58
+    ):
+        b_year = _p4(s)
+        b_month = _p2(s + 5)
+        b_day = _p2(s + 8)
+        b_hour = _p2(s + 11)
+        b_minute = _p2(s + 14)
+        b_second = _p2(s + 17)
+        if n > 20 and s[19] == 46:
+            b_usec = _pfrac(s + 20, n - 20)
+        elif n == 19:
+            b_usec = 0
+        else:
+            b_usec = -1
+        if (
+            b_year >= 1
+            and 1 <= b_month <= 12
+            and 1 <= b_day <= _days_in_month(b_year, b_month)
+            and 0 <= b_hour < 24
+            and 0 <= b_minute < 60
+            and 0 <= b_second < 60
+            and b_usec >= 0
+        ):
+            return datetime.datetime_new(
+                b_year, b_month, b_day, b_hour, b_minute, b_second, b_usec, None
+            )
+    return _convert_datetime(PyBytes_FromStringAndSize(<const char *> s, n))
+
+
+cdef object _parse_text_date(const unsigned char *s, Py_ssize_t n):
+    cdef int b_year, b_month, b_day
+    if n == 10 and s[4] == 45 and s[7] == 45:
+        b_year = _p4(s)
+        b_month = _p2(s + 5)
+        b_day = _p2(s + 8)
+        if (
+            b_year >= 1
+            and 1 <= b_month <= 12
+            and 1 <= b_day <= _days_in_month(b_year, b_month)
+        ):
+            return datetime.date_new(b_year, b_month, b_day)
+    return _convert_date(PyBytes_FromStringAndSize(<const char *> s, n))
+
+
+cdef object _parse_text_timedelta(const unsigned char *s, Py_ssize_t n):
+    cdef Py_ssize_t idx = 0, k = 0, mm_pos
+    cdef bint neg = False
+    cdef int b_hours = 0, b_minutes, b_seconds, b_usec
+    if n > 0 and s[0] == 45:
+        neg = True
+        idx = 1
+    while idx + k < n and k < 3 and 48 <= s[idx + k] <= 57:
+        b_hours = b_hours * 10 + (s[idx + k] - 48)
+        k += 1
+    if k > 0 and idx + k + 6 <= n and s[idx + k] == 58 and s[idx + k + 3] == 58:
+        mm_pos = idx + k + 1
+        b_minutes = _p2(s + mm_pos)
+        b_seconds = _p2(s + mm_pos + 3)
+        if n > mm_pos + 6 and s[mm_pos + 5] == 46:
+            b_usec = _pfrac(s + mm_pos + 6, n - (mm_pos + 6))
+        elif n == mm_pos + 5:
+            b_usec = 0
+        else:
+            b_usec = -1
+        if 0 <= b_minutes < 60 and 0 <= b_seconds < 60 and b_usec >= 0:
+            if neg:
+                return datetime.timedelta_new(
+                    0, -(b_hours * 3600 + b_minutes * 60 + b_seconds), -b_usec
+                )
+            return datetime.timedelta_new(
+                0, b_hours * 3600 + b_minutes * 60 + b_seconds, b_usec
+            )
+    return _convert_timedelta(PyBytes_FromStringAndSize(<const char *> s, n))
+
+
+cdef object _parse_text_time(const unsigned char *s, Py_ssize_t n):
+    cdef int b_hour, b_minute, b_second, b_usec
+    if n >= 8 and s[2] == 58 and s[5] == 58:
+        b_hour = _p2(s)
+        b_minute = _p2(s + 3)
+        b_second = _p2(s + 6)
+        if n > 9 and s[8] == 46:
+            b_usec = _pfrac(s + 9, n - 9)
+        elif n == 8:
+            b_usec = 0
+        else:
+            b_usec = -1
+        if (
+            0 <= b_hour < 24
+            and 0 <= b_minute < 60
+            and 0 <= b_second < 60
+            and b_usec >= 0
+        ):
+            return datetime.time_new(b_hour, b_minute, b_second, b_usec, None)
+    return _convert_time(PyBytes_FromStringAndSize(<const char *> s, n))
+
+
+cdef enum _TextColKind:
+    TC_BYTES = 0
+    TC_UTF8 = 1
+    TC_ASCII = 2
+    TC_ENCODE = 3
+    TC_INT = 4
+    TC_FLOAT = 5
+    TC_DATETIME = 6
+    TC_DATE = 7
+    TC_TIMEDELTA = 8
+    TC_TIME = 9
+    TC_DECIMAL = 10
+
+
+cdef struct _TextColSpec:
+    int kind
+    PyObject *encoding
+    PyObject *converter
+
+
+cdef struct _BinColSpec:
+    int type_code
+    bint is_unsigned
+    int code
+    PyObject *encoding
+    PyObject *converter
+
+
+cdef _TextColSpec* _compile_text_cols(
+    tuple converters, _TextColSpec *stack_buf, Py_ssize_t stack_cap
+) except NULL:
+    cdef Py_ssize_t n = len(converters), i
+    cdef _TextColSpec *cols = stack_buf
+    cdef tuple conv
+    cdef int code
+    cdef object enc, fn
+    if n > stack_cap:
+        cols = <_TextColSpec *> malloc(n * sizeof(_TextColSpec))
+        if cols == NULL:
+            raise MemoryError()
+    for i in range(n):
+        conv = <tuple> PyTuple_GET_ITEM(converters, i)
+        code = <int> conv[0]
+        enc = conv[1]
+        fn = conv[2]
+        cols[i].encoding = <PyObject *> enc if enc is not None else NULL
+        cols[i].converter = <PyObject *> fn if fn is not None else NULL
+        if code == 0 and fn is not None:
+            if fn is int:
+                cols[i].kind = TC_INT
+            elif fn is float:
+                cols[i].kind = TC_FLOAT
+            elif fn is _convert_datetime:
+                cols[i].kind = TC_DATETIME
+            elif fn is _convert_date:
+                cols[i].kind = TC_DATE
+            elif fn is _convert_timedelta:
+                cols[i].kind = TC_TIMEDELTA
+            elif fn is _convert_time:
+                cols[i].kind = TC_TIME
+            else:
+                cols[i].kind = TC_BYTES
+        elif code == 2 and fn is Decimal:
+            cols[i].kind = TC_DECIMAL
+        else:
+            cols[i].kind = code
+    return cols
+
+
+cdef _BinColSpec* _compile_bin_cols(
+    tuple colspecs, _BinColSpec *stack_buf, Py_ssize_t stack_cap
+) except NULL:
+    cdef Py_ssize_t n = len(colspecs), i
+    cdef _BinColSpec *cols = stack_buf
+    cdef tuple spec
+    cdef object enc, fn
+    if n > stack_cap:
+        cols = <_BinColSpec *> malloc(n * sizeof(_BinColSpec))
+        if cols == NULL:
+            raise MemoryError()
+    for i in range(n):
+        spec = <tuple> PyTuple_GET_ITEM(colspecs, i)
+        cols[i].type_code = <int> spec[0]
+        cols[i].is_unsigned = <bint> spec[1]
+        cols[i].code = <int> spec[2]
+        enc = spec[3]
+        fn = spec[4]
+        cols[i].encoding = <PyObject *> enc if enc is not None else NULL
+        cols[i].converter = <PyObject *> fn if fn is not None else NULL
+    return cols
 
 
 cdef object _parse_text_int(const unsigned char *p, Py_ssize_t length):
@@ -70,21 +355,17 @@ cdef object _parse_text_int(const unsigned char *p, Py_ssize_t length):
     return int(PyBytes_FromStringAndSize(<const char *> p, length))
 
 
-cdef tuple _parse_row(const unsigned char *p, Py_ssize_t size, tuple converters):
-    """Parse one text-protocol row directly from raw memory.
-
-    ``converters`` holds one ``(code, encoding, converter)`` tuple per column:
-    code 0 -> bytes, 1 -> utf8 decode, 2 -> ascii decode, 3 -> decode(encoding).
-    """
+cdef tuple _parse_row_compiled(
+    const unsigned char *p, Py_ssize_t size, const _TextColSpec *cols, Py_ssize_t n
+):
+    """Parse one text-protocol row using pre-compiled column specs."""
     cdef:
-        Py_ssize_t n = len(converters)
         Py_ssize_t pos = 0
         Py_ssize_t i, length
         unsigned int c
-        int code
+        int kind
         tuple row = PyTuple_New(n)
-        tuple conv
-        object value, converter
+        object value
 
     for i in range(n):
         if pos >= size:
@@ -120,30 +401,83 @@ cdef tuple _parse_row(const unsigned char *p, Py_ssize_t size, tuple converters)
         if pos + length > size:
             raise errors.InternalError("Truncated row packet")
 
-        conv = <tuple> converters[i]
-        code = <int> conv[0]
-        converter = conv[2]
-        if code == 0 and converter is int:
+        kind = cols[i].kind
+        if kind == TC_INT:
             value = _parse_text_int(p + pos, length)
             pos += length
             Py_INCREF(value)
             PyTuple_SET_ITEM(row, i, value)
             continue
-        if code == 0:
-            value = PyBytes_FromStringAndSize(<const char *> (p + pos), length)
-        elif code == 1:
+        elif kind == TC_UTF8:
             value = PyUnicode_DecodeUTF8(<const char *> (p + pos), length, NULL)
-        elif code == 2:
+        elif kind == TC_FLOAT:
+            value = _parse_text_float(p + pos, length)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
+        elif kind == TC_DATETIME:
+            value = _parse_text_datetime(p + pos, length)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
+        elif kind == TC_DATE:
+            value = _parse_text_date(p + pos, length)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
+        elif kind == TC_TIMEDELTA:
+            value = _parse_text_timedelta(p + pos, length)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
+        elif kind == TC_DECIMAL:
+            value = PyUnicode_DecodeASCII(<const char *> (p + pos), length, NULL)
+            value = PyObject_CallOneArg(<object> cols[i].converter, value)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
+        elif kind == TC_TIME:
+            value = _parse_text_time(p + pos, length)
+            pos += length
+            Py_INCREF(value)
+            PyTuple_SET_ITEM(row, i, value)
+            continue
+        elif kind == TC_BYTES:
+            value = PyBytes_FromStringAndSize(<const char *> (p + pos), length)
+        elif kind == TC_ASCII:
             value = PyUnicode_DecodeASCII(<const char *> (p + pos), length, NULL)
         else:
-            value = PyBytes_FromStringAndSize(<const char *> (p + pos), length).decode(<str> conv[1])
+            value = PyBytes_FromStringAndSize(<const char *> (p + pos), length).decode(
+                <str> <object> cols[i].encoding
+            )
         pos += length
 
-        if converter is not None:
-            value = converter(value)
+        if cols[i].converter != NULL:
+            value = PyObject_CallOneArg(<object> cols[i].converter, value)
         Py_INCREF(value)
         PyTuple_SET_ITEM(row, i, value)
     return row
+
+
+cdef tuple _parse_row(const unsigned char *p, Py_ssize_t size, tuple converters):
+    """Parse one text-protocol row directly from raw memory.
+
+    ``converters`` holds one ``(code, encoding, converter)`` tuple per column:
+    code 0 -> bytes, 1 -> utf8 decode, 2 -> ascii decode, 3 -> decode(encoding).
+    """
+    cdef _TextColSpec stack_cols[64]
+    cdef Py_ssize_t n = len(converters)
+    cdef _TextColSpec *cols = _compile_text_cols(converters, stack_cols, 64)
+    try:
+        return _parse_row_compiled(p, size, cols, n)
+    finally:
+        if cols != stack_cols:
+            free(cols)
 
 
 def parse_rows_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len,
@@ -162,8 +496,10 @@ def parse_rows_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len,
     """
     cdef:
         const unsigned char *base = <const unsigned char *> PyByteArray_AS_STRING(buf)
-        Py_ssize_t payload_len
+        Py_ssize_t payload_len, n = len(converters)
         unsigned int first
+        _TextColSpec stack_cols[64]
+        _TextColSpec *cols = NULL
 
     while buf_len - pos >= 4:
         payload_len = <Py_ssize_t> (base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16))
@@ -178,24 +514,179 @@ def parse_rows_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len,
             break  # error packet
         if first == 0xFE and (deprecate_eof or payload_len < 9):
             break  # EOF packet / DEPRECATE_EOF terminating OK packet
-        rows.append(_parse_row(base + pos + 4, payload_len, converters))
+        if cols == NULL:
+            cols = _compile_text_cols(converters, stack_cols, 64)
+        try:
+            rows.append(_parse_row_compiled(base + pos + 4, payload_len, cols, n))
+        except BaseException:
+            if cols != stack_cols:
+                free(cols)
+            raise
         pos += 4 + payload_len
         seq_id = (seq_id + 1) & 0xFF
+    if cols != NULL and cols != stack_cols:
+        free(cols)
     return pos, seq_id
 
 
-cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple colspecs):
-    """Parse one binary-protocol row from raw memory.
-
-    ``p`` points at the packet payload: [0x00 header][NULL bitmap][values...].
-    ``colspecs`` holds one ``(type_code, is_unsigned, code, encoding, converter)``
-    tuple per column, where code/encoding/converter follow the text-row rules
-    and apply only to length-encoded (string-ish) values.
-
-    Assumes a little-endian host (as does the rest of the wire parsing).
-    """
+cdef dict _parse_row_compiled_dict(
+    const unsigned char *p, Py_ssize_t size, const _TextColSpec *cols, list fields, Py_ssize_t n
+):
+    """Parse one text-protocol row directly into a presized dict (no tuple)."""
     cdef:
-        Py_ssize_t n = len(colspecs)
+        Py_ssize_t pos = 0
+        Py_ssize_t i, length
+        unsigned int c
+        int kind
+        dict row = asyncmy_proto_dict_new_presized(n)
+        object value
+
+    for i in range(n):
+        if pos >= size:
+            raise errors.InternalError("Truncated row packet")
+        c = p[pos]
+        pos += 1
+        if c == 251:  # NULL
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), None)
+            continue
+        if c < 251:
+            length = <Py_ssize_t> c
+        elif c == 252:
+            length = <Py_ssize_t> (p[pos] | (p[pos + 1] << 8))
+            pos += 2
+        elif c == 253:
+            length = <Py_ssize_t> (p[pos] | (p[pos + 1] << 8) | (p[pos + 2] << 16))
+            pos += 3
+        elif c == 254:
+            length = <Py_ssize_t> (
+                <unsigned long long> p[pos]
+                | (<unsigned long long> p[pos + 1] << 8)
+                | (<unsigned long long> p[pos + 2] << 16)
+                | (<unsigned long long> p[pos + 3] << 24)
+                | (<unsigned long long> p[pos + 4] << 32)
+                | (<unsigned long long> p[pos + 5] << 40)
+                | (<unsigned long long> p[pos + 6] << 48)
+                | (<unsigned long long> p[pos + 7] << 56)
+            )
+            pos += 8
+        else:
+            raise errors.InternalError("Invalid length encoded integer in row")
+        if pos + length > size:
+            raise errors.InternalError("Truncated row packet")
+
+        kind = cols[i].kind
+        if kind == TC_INT:
+            value = _parse_text_int(p + pos, length)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_UTF8:
+            value = PyUnicode_DecodeUTF8(<const char *> (p + pos), length, NULL)
+        elif kind == TC_FLOAT:
+            value = _parse_text_float(p + pos, length)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_DATETIME:
+            value = _parse_text_datetime(p + pos, length)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_DATE:
+            value = _parse_text_date(p + pos, length)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_TIMEDELTA:
+            value = _parse_text_timedelta(p + pos, length)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_DECIMAL:
+            value = PyUnicode_DecodeASCII(<const char *> (p + pos), length, NULL)
+            value = PyObject_CallOneArg(<object> cols[i].converter, value)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_TIME:
+            value = _parse_text_time(p + pos, length)
+            pos += length
+            PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+            continue
+        elif kind == TC_BYTES:
+            value = PyBytes_FromStringAndSize(<const char *> (p + pos), length)
+        elif kind == TC_ASCII:
+            value = PyUnicode_DecodeASCII(<const char *> (p + pos), length, NULL)
+        else:
+            value = PyBytes_FromStringAndSize(<const char *> (p + pos), length).decode(
+                <str> <object> cols[i].encoding
+            )
+        pos += length
+
+        if cols[i].converter != NULL:
+            value = PyObject_CallOneArg(<object> cols[i].converter, value)
+        PyDict_SetItem(row, <object> PyList_GET_ITEM(fields, i), value)
+    return row
+
+
+cdef dict _parse_row_as_dict(
+    const unsigned char *p, Py_ssize_t size, tuple converters, list fields
+):
+    cdef _TextColSpec stack_cols[64]
+    cdef Py_ssize_t n = len(converters)
+    cdef _TextColSpec *cols = _compile_text_cols(converters, stack_cols, 64)
+    try:
+        return _parse_row_compiled_dict(p, size, cols, fields, n)
+    finally:
+        if cols != stack_cols:
+            free(cols)
+
+
+cpdef object _parse_rows_from_buffer_as_dicts(
+    bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len,
+    tuple converters, list fields, unsigned int seq_id, list rows, bint deprecate_eof=False
+):
+    """Dict-row counterpart of parse_rows_from_buffer for DictCursor."""
+    cdef:
+        const unsigned char *base = <const unsigned char *> PyByteArray_AS_STRING(buf)
+        Py_ssize_t payload_len, n = len(converters)
+        unsigned int first
+        _TextColSpec stack_cols[64]
+        _TextColSpec *cols = NULL
+
+    while buf_len - pos >= 4:
+        payload_len = <Py_ssize_t> (base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16))
+        if base[pos + 3] != seq_id:
+            break
+        if payload_len == 0 or payload_len == 0xFFFFFF:
+            break
+        if buf_len - pos - 4 < payload_len:
+            break
+        first = base[pos + 4]
+        if first == 0xFF:
+            break
+        if first == 0xFE and (deprecate_eof or payload_len < 9):
+            break
+        if cols == NULL:
+            cols = _compile_text_cols(converters, stack_cols, 64)
+        try:
+            rows.append(_parse_row_compiled_dict(base + pos + 4, payload_len, cols, fields, n))
+        except BaseException:
+            if cols != stack_cols:
+                free(cols)
+            raise
+        pos += 4 + payload_len
+        seq_id = (seq_id + 1) & 0xFF
+    if cols != NULL and cols != stack_cols:
+        free(cols)
+    return pos, seq_id
+
+
+cdef tuple _parse_binary_row_compiled(
+    const unsigned char *p, Py_ssize_t size, const _BinColSpec *cols, Py_ssize_t n
+):
+    """Parse one binary-protocol row using pre-compiled column specs."""
+    cdef:
         Py_ssize_t bitmap_len = (n + 9) >> 3
         Py_ssize_t pos = 1 + bitmap_len
         const unsigned char *bitmap = p + 1
@@ -208,8 +699,7 @@ cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple cols
         float fv
         double dv
         tuple row = PyTuple_New(n)
-        tuple spec
-        object value, converter
+        object value
 
     if size < pos:
         raise errors.InternalError("Truncated binary row packet")
@@ -219,14 +709,13 @@ cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple cols
             Py_INCREF(None)
             PyTuple_SET_ITEM(row, i, None)
             continue
-        spec = <tuple> colspecs[i]
-        type_code = <int> spec[0]
+        type_code = cols[i].type_code
 
         if type_code == 3 or type_code == 9:  # LONG, INT24 (both 4 bytes)
             if pos + 4 > size:
                 raise errors.InternalError("Truncated binary row packet")
             u32 = p[pos] | (p[pos + 1] << 8) | (p[pos + 2] << 16) | (<unsigned int> p[pos + 3] << 24)
-            value = u32 if <bint> spec[1] else <int> u32
+            value = u32 if cols[i].is_unsigned else <int> u32
             pos += 4
         elif type_code == 8:  # LONGLONG
             if pos + 8 > size:
@@ -241,24 +730,24 @@ cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple cols
                 | (<unsigned long long> p[pos + 6] << 48)
                 | (<unsigned long long> p[pos + 7] << 56)
             )
-            value = u64 if <bint> spec[1] else <long long> u64
+            value = u64 if cols[i].is_unsigned else <long long> u64
             pos += 8
         elif type_code == 1:  # TINY
-            value = <unsigned int> p[pos] if <bint> spec[1] else <int> (<signed char> p[pos])
+            value = <unsigned int> p[pos] if cols[i].is_unsigned else <int> (<signed char> p[pos])
             pos += 1
         elif type_code == 2 or type_code == 13:  # SHORT, YEAR
             c = p[pos] | (p[pos + 1] << 8)
-            value = c if (<bint> spec[1] or type_code == 13) else <int> (<short> c)
+            value = c if (cols[i].is_unsigned or type_code == 13) else <int> (<short> c)
             pos += 2
         elif type_code == 5:  # DOUBLE
             if pos + 8 > size:
                 raise errors.InternalError("Truncated binary row packet")
             memcpy(&dv, p + pos, 8)
-            value = dv
+            value = PyFloat_FromDouble(dv)
             pos += 8
         elif type_code == 4:  # FLOAT
             memcpy(&fv, p + pos, 4)
-            value = <double> fv
+            value = PyFloat_FromDouble(<double> fv)
             pos += 4
         elif type_code == 7 or type_code == 12:  # TIMESTAMP, DATETIME
             L = p[pos]
@@ -360,7 +849,7 @@ cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple cols
                 raise errors.InternalError("Invalid length encoded integer in binary row")
             if pos + length > size:
                 raise errors.InternalError("Truncated binary row packet")
-            code = <int> spec[2]
+            code = cols[i].code
             if code == 0:
                 value = PyBytes_FromStringAndSize(<const char *> (p + pos), length)
             elif code == 1:
@@ -368,15 +857,28 @@ cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple cols
             elif code == 2:
                 value = PyUnicode_DecodeASCII(<const char *> (p + pos), length, NULL)
             else:
-                value = PyBytes_FromStringAndSize(<const char *> (p + pos), length).decode(<str> spec[3])
+                value = PyBytes_FromStringAndSize(<const char *> (p + pos), length).decode(
+                    <str> <object> cols[i].encoding
+                )
             pos += length
-            converter = spec[4]
-            if converter is not None:
-                value = converter(value)
+            if cols[i].converter != NULL:
+                value = PyObject_CallOneArg(<object> cols[i].converter, value)
 
         Py_INCREF(value)
         PyTuple_SET_ITEM(row, i, value)
     return row
+
+
+cdef tuple _parse_binary_row(const unsigned char *p, Py_ssize_t size, tuple colspecs):
+    """Parse one binary-protocol row from raw memory."""
+    cdef _BinColSpec stack_cols[64]
+    cdef Py_ssize_t n = len(colspecs)
+    cdef _BinColSpec *cols = _compile_bin_cols(colspecs, stack_cols, 64)
+    try:
+        return _parse_binary_row_compiled(p, size, cols, n)
+    finally:
+        if cols != stack_cols:
+            free(cols)
 
 
 def parse_binary_rows_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len,
@@ -385,8 +887,10 @@ def parse_binary_rows_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_
     """Binary-protocol counterpart of parse_rows_from_buffer."""
     cdef:
         const unsigned char *base = <const unsigned char *> PyByteArray_AS_STRING(buf)
-        Py_ssize_t payload_len
+        Py_ssize_t payload_len, n = len(colspecs)
         unsigned int first
+        _BinColSpec stack_cols[64]
+        _BinColSpec *cols = NULL
 
     while buf_len - pos >= 4:
         payload_len = <Py_ssize_t> (base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16))
@@ -401,9 +905,18 @@ def parse_binary_rows_from_buffer(bytearray buf, Py_ssize_t pos, Py_ssize_t buf_
             break  # error packet
         if first == 0xFE and (deprecate_eof or payload_len < 9):
             break  # EOF packet / DEPRECATE_EOF terminating OK packet
-        rows.append(_parse_binary_row(base + pos + 4, payload_len, colspecs))
+        if cols == NULL:
+            cols = _compile_bin_cols(colspecs, stack_cols, 64)
+        try:
+            rows.append(_parse_binary_row_compiled(base + pos + 4, payload_len, cols, n))
+        except BaseException:
+            if cols != stack_cols:
+                free(cols)
+            raise
         pos += 4 + payload_len
         seq_id = (seq_id + 1) & 0xFF
+    if cols != NULL and cols != stack_cols:
+        free(cols)
     return pos, seq_id
 
 
@@ -452,6 +965,8 @@ cpdef object _parse_cached_binary_result(
         unsigned int first, status, warnings
         bytes expected
         tuple rows, row
+        _BinColSpec stack_cols[64]
+        _BinColSpec *cols
 
     if pos < 0 or buf_len < pos or buf_len > PyByteArray_GET_SIZE(buf) or metadata_packets < 0:
         return None
@@ -511,13 +1026,19 @@ cpdef object _parse_cached_binary_result(
         seq_id = (seq_id + 1) & 0xFF
 
     rows = PyTuple_New(row_count)
-    pos = row_start
-    for index in range(row_count):
-        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
-        row = _parse_binary_row(base + pos + 4, length, colspecs)
-        Py_INCREF(row)
-        PyTuple_SET_ITEM(rows, index, row)
-        pos += length + 4
+    if row_count:
+        pos = row_start
+        cols = _compile_bin_cols(colspecs, stack_cols, 64)
+        try:
+            for index in range(row_count):
+                length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+                row = _parse_binary_row_compiled(base + pos + 4, length, cols, len(colspecs))
+                Py_INCREF(row)
+                PyTuple_SET_ITEM(rows, index, row)
+                pos += length + 4
+        finally:
+            if cols != stack_cols:
+                free(cols)
     return (
         next_pos, seq_id, rows, status if deprecate_eof else 0,
         warnings, status & SERVER_MORE_RESULTS_EXISTS,
@@ -541,6 +1062,162 @@ cdef object _parse_cached_binary_response(
     return _parse_cached_binary_result(
         buf, pos + 5, buf_len, (seq_id + 1) & 0xFF,
         field_count + (0 if deprecate_eof else 1), colspecs, deprecate_eof, column_packets,
+    )
+
+
+cdef object _parse_text_response_from_buffer(
+        bytearray buf, Py_ssize_t pos, Py_ssize_t buf_len, unsigned int seq_id,
+        bint deprecate_eof, tuple last_meta, dict meta_cache, bint as_dicts=False):
+    """Parse a complete cached-metadata text-protocol SELECT response from ``buf``.
+
+    Returns ``(next_pos, next_seq, rows, server_status, warning_count, has_next,
+    description, matched_entry)`` or ``None`` if incomplete, uncached, or not a
+    simple single-packet-metadata SELECT result set.
+    """
+    cdef:
+        const unsigned char *base = <const unsigned char *> PyByteArray_AS_STRING(buf)
+        Py_ssize_t field_count, meta_start, meta_len, length, row_start, next_pos
+        Py_ssize_t row_count = 0, index, remaining
+        unsigned int first, status, warnings
+        bytes last_wire, meta_key
+        tuple matched = None, converters, rows_tuple, row_t
+        list dict_fields, rows_list
+        dict row_d
+        object rows_out
+        _TextColSpec stack_cols[64]
+        _TextColSpec *cols
+
+    if pos < 0 or buf_len < pos or buf_len > PyByteArray_GET_SIZE(buf) or buf_len - pos < 5:
+        return None
+    # Packet 0: column count (1..250). OK (0x00), error (0xFF), LOAD LOCAL (0xFB)
+    # and >=251 column counts fall back to the generic reader.
+    if base[pos] != 1 or base[pos + 1] or base[pos + 2] or base[pos + 3] != seq_id:
+        return None
+    field_count = base[pos + 4]
+    if field_count < 1 or field_count >= 251:
+        return None
+    pos += 5
+    seq_id = (seq_id + 1) & 0xFF
+
+    meta_start = pos
+    remaining = field_count
+    while remaining:
+        if buf_len - pos < 4:
+            return None
+        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+        if base[pos + 3] != seq_id or length == 0xFFFFFF or buf_len - pos - 4 < length:
+            return None
+        if length and base[pos + 4] == 0xFF:
+            return None
+        pos += length + 4
+        seq_id = (seq_id + 1) & 0xFF
+        remaining -= 1
+    meta_len = pos - meta_start
+
+    # Fast 1-entry MRU memcmp check (zero allocation on repeated queries).
+    if last_meta is not None:
+        last_wire = <bytes> PyTuple_GET_ITEM(last_meta, 0)
+        if meta_len == PyBytes_GET_SIZE(last_wire) and memcmp(
+            base + meta_start, PyBytes_AS_STRING(last_wire), meta_len
+        ) == 0:
+            matched = last_meta
+    if matched is None:
+        if not meta_cache:
+            return None
+        meta_key = PyBytes_FromStringAndSize(<const char *> (base + meta_start), meta_len)
+        matched = meta_cache.get(meta_key)
+        if matched is None:
+            return None
+
+    if not deprecate_eof:
+        if buf_len - pos < 4:
+            return None
+        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+        if (
+            base[pos + 3] != seq_id or length < 5 or length >= 9
+            or buf_len - pos - 4 < length or base[pos + 4] != 0xFE
+        ):
+            return None
+        pos += length + 4
+        seq_id = (seq_id + 1) & 0xFF
+
+    row_start = pos
+    while True:
+        if buf_len - pos < 4:
+            return None
+        length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+        if (
+            base[pos + 3] != seq_id or length == 0 or length == 0xFFFFFF
+            or buf_len - pos - 4 < length
+        ):
+            return None
+        first = base[pos + 4]
+        if first == 0xFF:
+            return None
+        if first == 0xFE and (deprecate_eof or length < 9):
+            if deprecate_eof:
+                if length < 7 or base[pos + 5] != 0 or base[pos + 6] != 0:
+                    return None
+                status = base[pos + 7] | (base[pos + 8] << 8)
+                warnings = base[pos + 9] | (base[pos + 10] << 8)
+            else:
+                if length < 5:
+                    return None
+                warnings = base[pos + 5] | (base[pos + 6] << 8)
+                status = base[pos + 7] | (base[pos + 8] << 8)
+            next_pos = pos + length + 4
+            seq_id = (seq_id + 1) & 0xFF
+            break
+        pos += length + 4
+        row_count += 1
+        seq_id = (seq_id + 1) & 0xFF
+
+    if as_dicts:
+        rows_list = PyList_New(row_count)
+        if row_count:
+            converters = <tuple> PyTuple_GET_ITEM(matched, 2)
+            dict_fields = <list> PyTuple_GET_ITEM(matched, 3)
+            pos = row_start
+            cols = _compile_text_cols(converters, stack_cols, 64)
+            try:
+                for index in range(row_count):
+                    length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+                    row_d = _parse_row_compiled_dict(
+                        base + pos + 4, length, cols, dict_fields, field_count
+                    )
+                    Py_INCREF(row_d)
+                    PyList_SET_ITEM(rows_list, index, row_d)
+                    pos += length + 4
+            finally:
+                if cols != stack_cols:
+                    free(cols)
+        rows_out = rows_list
+    else:
+        rows_tuple = PyTuple_New(row_count)
+        if row_count:
+            converters = <tuple> PyTuple_GET_ITEM(matched, 2)
+            pos = row_start
+            cols = _compile_text_cols(converters, stack_cols, 64)
+            try:
+                for index in range(row_count):
+                    length = base[pos] | (base[pos + 1] << 8) | (base[pos + 2] << 16)
+                    row_t = _parse_row_compiled(base + pos + 4, length, cols, field_count)
+                    Py_INCREF(row_t)
+                    PyTuple_SET_ITEM(rows_tuple, index, row_t)
+                    pos += length + 4
+            finally:
+                if cols != stack_cols:
+                    free(cols)
+        rows_out = rows_tuple
+    return (
+        next_pos,
+        seq_id,
+        rows_out,
+        status if deprecate_eof else 0,
+        warnings,
+        status & SERVER_MORE_RESULTS_EXISTS,
+        <tuple> PyTuple_GET_ITEM(matched, 1),
+        matched,
     )
 
 
@@ -1386,3 +2063,341 @@ cpdef object _send_scalar_execute(bytes header, tuple args, int fd):
     if sent < 0:
         sent = 0
     return PyBytes_FromStringAndSize(<const char*>data + sent, size + 14 - sent)
+
+
+cpdef object _send_query_packet(object sql, str encoding, int fd):
+    """Send a small COM_QUERY packet from the stack on a nonblocking plain socket.
+
+    None means sent; False means unsupported (fall back to normal writer);
+    bytes are the unsent suffix for the transport's ordinary buffering.
+    """
+    cdef unsigned char data[4096]
+    cdef const char *src = NULL
+    cdef Py_ssize_t slen = 0, total, sent
+    if type(sql) is str:
+        if encoding == "utf8":
+            src = PyUnicode_AsUTF8AndSize(sql, &slen)
+            if src == NULL:
+                PyErr_Clear()
+                return False
+        elif (encoding == "ascii" or encoding == "latin1") and PyUnicode_IS_ASCII(sql):
+            src = PyUnicode_AsUTF8AndSize(sql, &slen)
+            if src == NULL:
+                PyErr_Clear()
+                return False
+        else:
+            return False
+    elif type(sql) is bytes:
+        src = PyBytes_AS_STRING(<bytes> sql)
+        slen = PyBytes_GET_SIZE(<bytes> sql)
+    else:
+        return False
+
+    if slen > 4091:
+        return False
+
+    total = slen + 5
+    data[0] = <unsigned char> ((slen + 1) & 0xFF)
+    data[1] = <unsigned char> (((slen + 1) >> 8) & 0xFF)
+    data[2] = 0
+    data[3] = 0
+    data[4] = 3  # COM_QUERY
+    if slen:
+        memcpy(data + 5, src, slen)
+    sent = asyncmy_send(fd, <const char *> data, total)
+    if sent == total:
+        return None
+    if sent < 0:
+        sent = 0
+    return PyBytes_FromStringAndSize(<const char *> data + sent, total - sent)
+
+
+cdef inline void _ba_append(bytearray ba, const char *src, Py_ssize_t n) except *:
+    cdef Py_ssize_t cur = PyByteArray_GET_SIZE(ba)
+    if PyByteArray_Resize(ba, cur + n) < 0:
+        raise MemoryError()
+    memcpy(PyByteArray_AS_STRING(ba) + cur, src, n)
+
+
+cdef void _ba_append_escaped(
+    bytearray ba, const unsigned char *p, Py_ssize_t n, bint no_backslash_escapes
+) except *:
+    cdef Py_ssize_t i = 0, start = 0
+    cdef unsigned char c
+    cdef char esc[2]
+    _ba_append(ba, "'", 1)
+    if no_backslash_escapes:
+        while i < n:
+            if p[i] == 39:  # '\''
+                if i > start:
+                    _ba_append(ba, <const char *> (p + start), i - start)
+                _ba_append(ba, "''", 2)
+                start = i + 1
+            i += 1
+    else:
+        esc[0] = 92  # '\\'
+        while i < n:
+            c = p[i]
+            if c == 0 or c == 10 or c == 13 or c == 26 or c == 34 or c == 39 or c == 92:
+                if i > start:
+                    _ba_append(ba, <const char *> (p + start), i - start)
+                if c == 0:
+                    esc[1] = 48  # '0'
+                elif c == 10:
+                    esc[1] = 110  # 'n'
+                elif c == 13:
+                    esc[1] = 114  # 'r'
+                elif c == 26:
+                    esc[1] = 90  # 'Z'
+                else:
+                    esc[1] = c
+                _ba_append(ba, esc, 2)
+                start = i + 1
+            i += 1
+    if n > start:
+        _ba_append(ba, <const char *> (p + start), n - start)
+    _ba_append(ba, "'", 1)
+
+
+cpdef object _format_executemany_batches(
+    bytes prefix, str values_tpl, bytes postfix, object args,
+    Py_ssize_t max_stmt_length, str encoding, bint no_backslash_escapes
+):
+    """Serialize positional INSERT/REPLACE executemany rows directly into SQL batches.
+
+    Returns a list of encoded SQL ``bytes`` batches, or ``None`` if the template,
+    encoding, or row structure needs the generic Python formatter.
+    """
+    cdef:
+        list raw_parts, parts, batches
+        Py_ssize_t n_placeholders, i, slen, prefix_len, postfix_len, row_start, overflow_len
+        int overflow, nwritten, dtype
+        long long i64v, days, hours
+        long secs, usec, minutes, seconds
+        const char *utf8
+        char *dstr
+        char tmp[64]
+        bytearray buf, new_buf
+        bytes part_b, encoded, batch_bytes
+        object row, v
+        str fstr
+
+    if encoding != "utf8":
+        return None
+    # Split on %s only when no other % formatting directives exist in values_tpl.
+    raw_parts = values_tpl.split("%s")
+    n_placeholders = len(raw_parts) - 1
+    if n_placeholders <= 0:
+        return None
+    parts = []
+    for p_str in raw_parts:
+        if "%" in p_str:
+            return None
+        parts.append((<str> p_str).encode("utf8"))
+
+    prefix_len = PyBytes_GET_SIZE(prefix)
+    postfix_len = PyBytes_GET_SIZE(postfix)
+    batches = []
+    buf = bytearray(prefix)
+
+    for row in args:
+        if not isinstance(row, (tuple, list)) or len(row) != n_placeholders:
+            return None
+        row_start = PyByteArray_GET_SIZE(buf)
+        if row_start > prefix_len:
+            _ba_append(buf, ",", 1)
+        part_b = <bytes> parts[0]
+        if PyBytes_GET_SIZE(part_b):
+            _ba_append(buf, PyBytes_AS_STRING(part_b), PyBytes_GET_SIZE(part_b))
+
+        for i in range(n_placeholders):
+            v = row[i]
+            if v is None:
+                _ba_append(buf, "NULL", 4)
+            elif type(v) is int:
+                i64v = PyLong_AsLongLongAndOverflow(v, &overflow)
+                if not overflow:
+                    nwritten = snprintf(tmp, sizeof(tmp), "%lld", i64v)
+                    _ba_append(buf, tmp, nwritten)
+                else:
+                    encoded = str(v).encode("ascii")
+                    _ba_append(buf, PyBytes_AS_STRING(encoded), PyBytes_GET_SIZE(encoded))
+            elif type(v) is str:
+                utf8 = PyUnicode_AsUTF8AndSize(v, &slen)
+                if utf8 != NULL:
+                    _ba_append_escaped(buf, <const unsigned char *> utf8, slen, no_backslash_escapes)
+                else:
+                    PyErr_Clear()
+                    encoded = (<str> v).encode("utf8", "surrogateescape")
+                    _ba_append_escaped(
+                        buf,
+                        <const unsigned char *> PyBytes_AS_STRING(encoded),
+                        PyBytes_GET_SIZE(encoded),
+                        no_backslash_escapes,
+                    )
+            elif type(v) is float:
+                dtype = 0
+                dstr = PyOS_double_to_string(<double> v, b'r', 0, 0, &dtype)
+                if dstr != NULL and dtype == 0:
+                    try:
+                        slen = strlen(dstr)
+                        _ba_append(buf, dstr, slen)
+                        if strchr(dstr, 101) == NULL and strchr(dstr, 69) == NULL:
+                            _ba_append(buf, "e0", 2)
+                    finally:
+                        PyMem_Free(dstr)
+                else:
+                    if dstr != NULL:
+                        PyMem_Free(dstr)
+                    else:
+                        PyErr_Clear()
+                    fstr = _escape_float(<double> v)
+                    utf8 = PyUnicode_AsUTF8AndSize(fstr, &slen)
+                    _ba_append(buf, utf8, slen)
+            elif type(v) is bool:
+                _ba_append(buf, "1" if v else "0", 1)
+            elif type(v) is bytes:
+                _ba_append(buf, "_binary", 7)
+                _ba_append_escaped(
+                    buf,
+                    <const unsigned char *> PyBytes_AS_STRING(<bytes> v),
+                    PyBytes_GET_SIZE(<bytes> v),
+                    False,
+                )
+            elif type(v) is bytearray:
+                _ba_append(buf, "_binary", 7)
+                _ba_append_escaped(
+                    buf,
+                    <const unsigned char *> PyByteArray_AS_STRING(<bytearray> v),
+                    PyByteArray_GET_SIZE(<bytearray> v),
+                    False,
+                )
+            elif type(v) is datetime.datetime:
+                usec = datetime.PyDateTime_DATE_GET_MICROSECOND(v)
+                if usec:
+                    nwritten = snprintf(
+                        tmp, sizeof(tmp), "'%04d-%02d-%02d %02d:%02d:%02d.%06ld'",
+                        datetime.PyDateTime_GET_YEAR(v),
+                        datetime.PyDateTime_GET_MONTH(v),
+                        datetime.PyDateTime_GET_DAY(v),
+                        datetime.PyDateTime_DATE_GET_HOUR(v),
+                        datetime.PyDateTime_DATE_GET_MINUTE(v),
+                        datetime.PyDateTime_DATE_GET_SECOND(v),
+                        usec,
+                    )
+                else:
+                    nwritten = snprintf(
+                        tmp, sizeof(tmp), "'%04d-%02d-%02d %02d:%02d:%02d'",
+                        datetime.PyDateTime_GET_YEAR(v),
+                        datetime.PyDateTime_GET_MONTH(v),
+                        datetime.PyDateTime_GET_DAY(v),
+                        datetime.PyDateTime_DATE_GET_HOUR(v),
+                        datetime.PyDateTime_DATE_GET_MINUTE(v),
+                        datetime.PyDateTime_DATE_GET_SECOND(v),
+                    )
+                _ba_append(buf, tmp, nwritten)
+            elif type(v) is datetime.date:
+                nwritten = snprintf(
+                    tmp, sizeof(tmp), "'%04d-%02d-%02d'",
+                    datetime.PyDateTime_GET_YEAR(v),
+                    datetime.PyDateTime_GET_MONTH(v),
+                    datetime.PyDateTime_GET_DAY(v),
+                )
+                _ba_append(buf, tmp, nwritten)
+            elif type(v) is datetime.timedelta:
+                days = datetime.PyDateTime_DELTA_GET_DAYS(v)
+                secs = datetime.PyDateTime_DELTA_GET_SECONDS(v)
+                usec = datetime.PyDateTime_DELTA_GET_MICROSECONDS(v)
+                if days < 0:
+                    if secs or usec:
+                        days = -days - 1
+                        secs = 86400 - secs
+                        if usec:
+                            secs -= 1
+                            usec = 1000000 - usec
+                    else:
+                        days = -days
+                    hours = days * 24 + secs // 3600
+                    minutes = (secs % 3600) // 60
+                    seconds = secs % 60
+                    if usec:
+                        nwritten = snprintf(
+                            tmp, sizeof(tmp), "'-%02lld:%02ld:%02ld.%06ld'",
+                            hours, minutes, seconds, usec,
+                        )
+                    else:
+                        nwritten = snprintf(
+                            tmp, sizeof(tmp), "'-%02lld:%02ld:%02ld'",
+                            hours, minutes, seconds,
+                        )
+                else:
+                    hours = days * 24 + secs // 3600
+                    minutes = (secs % 3600) // 60
+                    seconds = secs % 60
+                    if usec:
+                        nwritten = snprintf(
+                            tmp, sizeof(tmp), "'%02lld:%02ld:%02ld.%06ld'",
+                            hours, minutes, seconds, usec,
+                        )
+                    else:
+                        nwritten = snprintf(
+                            tmp, sizeof(tmp), "'%02lld:%02ld:%02ld'",
+                            hours, minutes, seconds,
+                        )
+                _ba_append(buf, tmp, nwritten)
+            elif type(v) is datetime.time:
+                usec = datetime.PyDateTime_TIME_GET_MICROSECOND(v)
+                if usec:
+                    nwritten = snprintf(
+                        tmp, sizeof(tmp), "'%02d:%02d:%02d.%06ld'",
+                        datetime.PyDateTime_TIME_GET_HOUR(v),
+                        datetime.PyDateTime_TIME_GET_MINUTE(v),
+                        datetime.PyDateTime_TIME_GET_SECOND(v),
+                        usec,
+                    )
+                else:
+                    nwritten = snprintf(
+                        tmp, sizeof(tmp), "'%02d:%02d:%02d'",
+                        datetime.PyDateTime_TIME_GET_HOUR(v),
+                        datetime.PyDateTime_TIME_GET_MINUTE(v),
+                        datetime.PyDateTime_TIME_GET_SECOND(v),
+                    )
+                _ba_append(buf, tmp, nwritten)
+            elif type(v) is Decimal:
+                encoded = format(v, "f").encode("ascii")
+                _ba_append(buf, PyBytes_AS_STRING(encoded), PyBytes_GET_SIZE(encoded))
+            else:
+                return None
+
+            part_b = <bytes> parts[i + 1]
+            if PyBytes_GET_SIZE(part_b):
+                _ba_append(buf, PyBytes_AS_STRING(part_b), PyBytes_GET_SIZE(part_b))
+
+        if row_start > prefix_len and PyByteArray_GET_SIZE(buf) + postfix_len > max_stmt_length:
+            # Flush everything before the current row, then start the next batch
+            # with prefix + the current row (skipping the leading comma).
+            batch_bytes = PyBytes_FromStringAndSize(NULL, row_start + postfix_len)
+            memcpy(PyBytes_AS_STRING(batch_bytes), PyByteArray_AS_STRING(buf), row_start)
+            if postfix_len:
+                memcpy(
+                    PyBytes_AS_STRING(batch_bytes) + row_start,
+                    PyBytes_AS_STRING(postfix),
+                    postfix_len,
+                )
+            batches.append(batch_bytes)
+
+            overflow_len = PyByteArray_GET_SIZE(buf) - (row_start + 1)
+            new_buf = bytearray(prefix_len + overflow_len)
+            memcpy(PyByteArray_AS_STRING(new_buf), PyBytes_AS_STRING(prefix), prefix_len)
+            memcpy(
+                PyByteArray_AS_STRING(new_buf) + prefix_len,
+                PyByteArray_AS_STRING(buf) + row_start + 1,
+                overflow_len,
+            )
+            buf = new_buf
+
+    if PyByteArray_GET_SIZE(buf) > prefix_len:
+        if postfix_len:
+            _ba_append(buf, PyBytes_AS_STRING(postfix), postfix_len)
+        batches.append(bytes(buf))
+    return batches

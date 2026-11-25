@@ -18,11 +18,13 @@ cdef class _ConnectionState:
         public _ProtocolState _proto
         public MySQLResult _result
         public str _encoding
-        public dict _stmt_cache
+        public dict _stmt_cache, _text_meta_cache
+        public tuple _last_text_meta
         public Py_ssize_t _stmt_cache_size
         public unsigned int _next_seq_id
-        public int server_status, _echo
-        public bint _connected, _deprecate_eof
+        public int server_status, _echo, _write_fd
+        public object _write_transport
+        public bint _connected, _deprecate_eof, _default_encoders
 
 
 cdef class MySQLResult:
@@ -34,10 +36,11 @@ cdef class MySQLResult:
         public list fields, converters
         public unsigned long long insert_id
         public tuple rows, description
+        public list _dict_rows, _dict_fields
         tuple _row_converters
         tuple _binary_colspecs
         list _pending_rows
         Py_ssize_t _pending_idx
-        bint _deprecate_eof
+        bint _deprecate_eof, _as_dicts
     cpdef list _take_pending_rows(self, limit=*)
     cdef _read_row_from_packet(self, packet)

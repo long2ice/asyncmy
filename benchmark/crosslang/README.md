@@ -9,11 +9,10 @@ For the separate mysqlclient/PyMySQL/aiomysql suite, see the
 
 ## Results
 
-Measured on 2026-10-22: Apple M4 Max, macOS 27.0.1 arm64, MySQL 26.10.0,
+Measured on 2026-11-25: Apple M4 Max, macOS 27.2.1 arm64, MySQL 26.10.0,
 CPython 3.15.1, Cython 3.3.0, uvloop 0.23.0, Go 1.27.3 with
 go-sql-driver/mysql 1.10.1, Rust 1.99.1 with mysql_async 0.37.1 / Tokio 1.54.1.
-These are the latest stable releases checked for this run. MySQL was upgraded
-in place; the existing 50,000-row benchmark table was preserved.
+The existing 50,000-row benchmark table was preserved.
 
 Times are **milliseconds**, the **median of 504 samples** per case: 72 rounds
 with all six client-order permutations repeated twelve times. Each round has
@@ -25,50 +24,57 @@ one event-loop thread, Rust uses Tokio's current-thread runtime, and Go sets
 
 | Scenario | asyncmy asyncio | asyncmy uvloop | Go | Rust |
 | --- | ---: | ---: | ---: | ---: |
-| 50k rows × 8 integer columns, text | 12.94 | 13.95 | 19.12 | 18.01 |
-| 50k rows × 8 integer columns, binary | 9.97 | 9.74 | 12.64 | 9.60 |
-| 50k rows × 10 mixed columns, text | 36.71 | 41.86 | 33.73 | 33.41 |
-| 50k rows × 10 mixed columns, binary | 23.56 | 23.55 | 25.49 | 20.43 |
-| Pooled 20×200 point queries, text | 51.24 | 45.03 | 34.87 | 33.49 |
-| Pooled 20×200 point queries, binary | 34.68 | 31.11 | 32.06 | 34.12 |
+| 50k rows × 8 integer columns, text | 12.81 | 14.11 | 18.74 | 15.56 |
+| 50k rows × 8 integer columns, binary | 9.79 | 9.61 | 12.46 | 8.99 |
+| 50k rows × 10 mixed columns, text | 36.94 | 42.53 | 33.62 | 33.20 |
+| 50k rows × 10 mixed columns, binary | 23.26 | 23.20 | 25.18 | 20.39 |
+| Pooled 20×200 point queries, text | 34.60 | 29.99 | 36.15 | 35.13 |
+| Pooled 20×200 point queries, binary | 33.85 | 28.61 | 31.17 | 34.95 |
 
-The ordinary pooled Cursor binary path with uvloop leads both native drivers
-in this workload. Mean per-round throughput advantage and its 95% confidence
-interval are **2.79% [1.65%, 3.88%] over Go** and
-**9.37% [8.64%, 10.22%] over Rust**. These intervals resample complete balanced
-six-round blocks, preserving client-order balance and short-term variation
-(12 blocks, 100,000 bootstrap draws, seed 20261022).
+The ordinary pooled Cursor path with uvloop leads both native drivers on both
+text and binary point queries. Mean per-round throughput advantage and 95%
+confidence intervals (12 balanced six-round blocks, 100,000 bootstrap draws,
+seed 20261125):
+
+- **Pooled text point queries (`stmt_cache_size=0`)**: **+18.90% [17.01%,
+  20.27%] over Go** (72/72 round wins) and **+15.71% [12.61%, 18.02%] over
+  Rust** (69/72 round wins).
+- **Pooled binary point queries (`stmt_cache_size=32`)**: **+7.61% [6.41%,
+  8.83%] over Go** (68/72 round wins) and **+20.42% [16.84%, 22.92%] over
+  Rust** (72/72 round wins).
 
 ![Binary point-query throughput advantage with 95% confidence intervals](../../images/benchmark-point-binary.svg)
 
-Individual round medians overlap: asyncmy wins 50/72 rounds against Go and
-71/72 against Rust. Its average advantage is positive in 11/12 balanced blocks
-against Go and all 12 against Rust. This supports a repeatable average lead
-for these pooled binary point queries. Both native drivers lead on text point
-queries, and Rust leads on mixed scans.
+Every one of the 12 balanced six-round blocks favors asyncmy + uvloop against
+both Go and Rust on both text and binary point queries. Rust leads on binary
+integer scans and mixed scans.
 
 [Raw samples, source hashes, environment and validation](results.json) retain
 all 504 samples per case in round order, without discarding samples. Each round
 records its client order, medians, and the offset of its seven samples in the
 aggregate arrays. Earlier toolchains and optimization stages are separate.
-A seven-sample reference of the earlier working tree, rebuilt on the latest
-toolchain and server, took 47.88 ms for uvloop binary point queries. The current
-31.11 ms result reduces elapsed time by about 35%; this reference is a separate
-measurement, not a paired experiment.
+Compared with the earlier 2026-10-22 build on the same MySQL 26.10.0 server and
+toolchain, uvloop text point queries dropped from 45.03 ms to 29.99 ms (-33.4%),
+asyncio text point queries dropped from 51.24 ms to 34.60 ms (-32.5%), and
+uvloop binary point queries improved further from 31.11 ms to 28.61 ms (-8.0%).
 
 The current build keeps healthy pool checkout synchronous, coalesces waiter
 notifications, uses typed internal connection/pool/protocol state, and parses
-complete cached binary results directly into Cursor rows after verifying the
-column-definition bytes. A specialized lazy pool checkout avoids coroutine
-allocation on healthy acquisitions; CPython 3.10+ uses the public `am_send`
-result protocol, with the iterator protocol on older Python versions.
+complete cached text and binary results directly into `Cursor` / `DictCursor`
+rows after verifying the column-definition bytes. Text row parsing decodes
+integers, floats, and temporal values inline in C from pre-compiled column
+specs; `DictCursor` streams rows directly into presized dicts; `executemany()`
+serializes positional `INSERT`/`REPLACE` batches in C. A specialized lazy pool
+checkout avoids coroutine allocation on healthy acquisitions; CPython 3.10+
+uses the public `am_send` result protocol.
 
-On plain POSIX sockets with an empty transport write queue, a single built-in
-numeric/NULL parameter can be packed and sent from a small stack buffer. TLS,
-queued writes, unsupported parameters, and replaced command/write hooks retain
-the transport path; a short or blocked send returns its unsent bytes to that
-path in order. Class and instance hooks remain effective. Release hooks cannot
-suppress exceptions raised inside the pool context.
+On plain POSIX sockets with an empty transport write queue, small `COM_QUERY`
+packets and single built-in numeric/NULL prepared parameters are packed and
+sent from a small stack buffer. TLS, queued writes, unsupported parameters, and
+replaced command/write hooks retain the transport path; a short or blocked send
+returns its unsent bytes to that path in order. Class and instance hooks remain
+effective. Release hooks cannot suppress exceptions raised inside the pool
+context.
 
 Partial responses, changed metadata, warnings, extra result sets and cursor
 subclasses retain their general paths. Large parameters are encoded once;
@@ -76,11 +82,9 @@ streaming cursors retain unbuffered operation. Public Connection, Pool and
 PreparedStatement classes remain mutable and subclassable. Remaining Python
 modules were kept as Python; optimization targets the hot paths and allocations.
 
-Validated against local MySQL: CPython 3.15.1 (asyncio and uvloop) and 3.9.25
-passed 295 tests each, with two free-threading-only tests skipped. CPython
-3.14.9t and 3.15.1t each passed all 297 tests. Ruff, mypy and stubtest passed.
-The sdist and wheel built from it include the Cython headers; an isolated wheel
-import, pooled cached binary query and retained-data smoke test passed.
+Validated against local MySQL: CPython 3.15.1 passed 310 tests (2
+free-threading-only tests skipped). Ruff, mypy (57 files) and stubtest (34
+modules) passed.
 
 ## Measurement details
 
@@ -138,10 +142,10 @@ Go/Rust/Python, Python/Rust/Go. Repeat this complete balanced group twelve
 times (72 rounds) to reproduce the measurement. Aggregate all 504 samples for
 each runtime/case and take their median. Keep every sample.
 
-For confidence intervals, compute each round's binary point-query throughput
+For confidence intervals, compute each round's point-query throughput
 advantage as `native_median_ms / asyncmy_uvloop_median_ms - 1`. Average each
 consecutive six-round group's advantages. Draw twelve such group means with
-replacement 100,000 times (Python `random.Random(20261022).choices`), taking the
+replacement 100,000 times (Python `random.Random(20261125).choices`), taking the
 mean of each draw. Reset the seed for each comparison. Sort the draw means
 and use elements 2,499 and 97,499 (zero-based) as the percentile interval.
 The exact block means and interval bounds are in `results.json`.

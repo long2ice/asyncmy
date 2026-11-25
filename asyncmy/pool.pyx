@@ -47,7 +47,7 @@ cdef class _PoolState:
     cdef:
         dict __dict__
         object __weakref__
-        public object _loop, _free, _cond, _wakeup_handle, _release_done
+        public object _loop, _free, _cond, _cond_lock, _wakeup_handle, _release_done
         public dict _conn_kwargs
         public set _used, _terminated
         public Py_ssize_t _minsize, _acquiring
@@ -72,6 +72,8 @@ class Pool(_PoolState, asyncio.AbstractServer):
         self._acquiring = 0
         self._free: Deque[Connection] = collections.deque(maxlen=maxsize)
         self._cond = asyncio.Condition()
+        cond_lock = getattr(self._cond, "_lock", None)
+        self._cond_lock = cond_lock if hasattr(cond_lock, "_locked") else None
         self._wakeup_handle = None
         self._release_done = self._loop.create_future()
         self._release_done.set_result(None)
@@ -200,7 +202,7 @@ class Pool(_PoolState, asyncio.AbstractServer):
             raise RuntimeError("Cannot acquire connection after closing pool")
         # No task can change pool state during this checkout: it contains no
         # await. Respect the lock if a drainer or connection creator holds it.
-        if not self._cond.locked():
+        if not (self._cond_lock._locked if self._cond_lock is not None else self._cond.locked()):
             conn = _take_free_connection(self)
             if conn is not None:
                 return conn
@@ -392,7 +394,8 @@ cdef class _PoolAcquireContext:
         if (not self._started and self._coro is None and value is None and type(pool) is Pool
                 and _class_method_is(pool, "_acquire", _original_acquire)
                 and "_acquire" not in <dict>PyObject_GenericGetDict(pool, NULL)
-                and not pool._closing and not pool._cond.locked()):
+                and not pool._closing
+                and not (pool._cond_lock._locked if pool._cond_lock is not None else pool._cond.locked())):
             conn = _take_free_connection(pool)
             if conn is not None:
                 self._started = self._finished = True

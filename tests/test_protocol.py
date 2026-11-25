@@ -319,3 +319,209 @@ def test_scalar_execute_backpressure_keeps_unsent_packet():
     finally:
         sender.close()
         receiver.close()
+
+
+def test_text_row_inline_c_parsers_and_fallbacks():
+    import datetime
+    from decimal import Decimal
+
+    from asyncmy.converters import convert_date, convert_datetime, convert_time, convert_timedelta
+
+    def cell(b):
+        if b is None:
+            return b"\xfb"
+        return bytes([len(b)]) + b
+
+    payload = b"".join(
+        [
+            cell(b"42"),
+            cell(b"-3.125"),
+            cell(b"123.4500"),
+            cell(b"2024-02-29 23:59:58.12"),
+            cell(b"2024-02-29"),
+            cell(b"-25:06:17.5"),
+            cell(b"15:06:17.000042"),
+            cell("你好".encode()),
+            cell(None),
+        ]
+    )
+    converters = (
+        (0, None, int),
+        (0, None, float),
+        (2, "ascii", Decimal),
+        (0, None, convert_datetime),
+        (0, None, convert_date),
+        (0, None, convert_timedelta),
+        (0, None, convert_time),
+        (1, "utf8", None),
+        (0, None, float),
+    )
+    packet = bytearray(len(payload).to_bytes(3, "little") + b"\x00" + payload)
+    rows = []
+    pos, seq = parse_rows_from_buffer(packet, 0, len(packet), converters, 0, rows, True)
+    assert (pos, seq) == (len(packet), 1)
+    assert rows == [
+        (
+            42,
+            -3.125,
+            Decimal("123.4500"),
+            datetime.datetime(2024, 2, 29, 23, 59, 58, 120000),
+            datetime.date(2024, 2, 29),
+            datetime.timedelta(days=-2, seconds=82422, microseconds=500000),
+            datetime.time(15, 6, 17, 42),
+            "你好",
+            None,
+        )
+    ]
+
+    # Non-canonical / invalid values must fall back cleanly to Python semantics.
+    edge_payload = b"".join(
+        [
+            cell(b" 1.5 "),
+            cell(b"1e500"),
+            cell(b"0000-00-00 00:00:00"),
+            cell(b"2023-02-29"),
+            cell(b"invalid"),
+            cell(b"-01:00:00"),
+        ]
+    )
+    edge_convs = (
+        (0, None, float),
+        (0, None, float),
+        (0, None, convert_datetime),
+        (0, None, convert_date),
+        (0, None, convert_timedelta),
+        (0, None, convert_time),
+    )
+    row = MysqlPacket(edge_payload, "utf8").read_row(edge_convs)
+    assert row == (1.5, float("inf"), "0000-00-00 00:00:00", "2023-02-29", "invalid", "-01:00:00")
+
+    with pytest.raises(ValueError):
+        MysqlPacket(cell(b"not-a-float"), "utf8").read_row(((0, None, float),))
+
+
+def test_wide_row_exceeding_stack_column_buffer():
+    # Exercises the heap malloc/free path when column count > 64.
+    ncols = 70
+    payload = b"".join(bytes([len(str(i))]) + str(i).encode() for i in range(ncols))
+    converters = tuple((0, None, int) for _ in range(ncols))
+    packet = bytearray(len(payload).to_bytes(3, "little") + b"\x00" + payload)
+    rows = []
+    pos, seq = parse_rows_from_buffer(packet, 0, len(packet), converters, 0, rows, True)
+    assert (pos, seq) == (len(packet), 1)
+    assert rows == [tuple(range(ncols))]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX socket fast path")
+def test_send_query_packet_wire_and_fallback():
+    import socket
+
+    from asyncmy.protocol import _send_query_packet
+
+    sender, receiver = socket.socketpair()
+    try:
+        sender.setblocking(False)
+        for sql, expected_bytes in [
+            ("SELECT 1", b"SELECT 1"),
+            ("SELECT '中文'", "SELECT '中文'".encode()),
+            (b"SELECT 2", b"SELECT 2"),
+        ]:
+            assert _send_query_packet(sql, "utf8", sender.fileno()) is None
+            expected = (
+                (len(expected_bytes) + 1).to_bytes(3, "little") + b"\x00\x03" + expected_bytes
+            )
+            assert receiver.recv(128) == expected
+        # Oversized queries and non-ASCII on latin1 fall back cleanly.
+        assert _send_query_packet("x" * 5000, "utf8", sender.fileno()) is False
+        assert _send_query_packet("中文", "latin1", sender.fileno()) is False
+    finally:
+        sender.close()
+        receiver.close()
+
+
+def test_format_executemany_batches_matches_legacy_and_splits():
+    import datetime
+    from decimal import Decimal
+
+    from asyncmy.errors import ProgrammingError
+    from asyncmy.protocol import _format_executemany_batches
+
+    rows = [
+        (
+            1,
+            2**64 - 1,
+            None,
+            True,
+            False,
+            1.25,
+            "a'b\"c\\d\0\n\r\x1a中",
+            b"raw\x00'\\x",
+            bytearray(b"ba'"),
+            datetime.datetime(2024, 1, 2, 3, 4, 5, 67),
+            datetime.datetime(2024, 1, 2, 3, 4, 5),
+            datetime.date(2024, 1, 2),
+            datetime.timedelta(days=-2, seconds=3, microseconds=456789),
+            datetime.timedelta.min,
+            datetime.time(6, 7, 8, 9),
+            Decimal("12.340"),
+        ),
+        (
+            2,
+            -(2**63),
+            None,
+            False,
+            True,
+            0.0,
+            "plain",
+            b"ok",
+            bytearray(b"ok"),
+            datetime.datetime(2024, 1, 2, 3, 4, 5),
+            datetime.datetime(2024, 1, 2, 3, 4, 5),
+            datetime.date(2024, 1, 2),
+            datetime.timedelta(0),
+            datetime.timedelta.max,
+            datetime.time(6, 7, 8),
+            Decimal("0.00"),
+        ),
+    ]
+    tpl = "(" + ", ".join(["%s"] * 16) + ")"
+    batches = _format_executemany_batches(
+        b"INSERT INTO t VALUES ", tpl, b" ON DUPLICATE KEY UPDATE x=1", rows, 1024000, "utf8", False
+    )
+    assert len(batches) == 1
+    sql = batches[0].decode("utf8")
+    assert "'a\\'b\\\"c\\\\d\\0\\n\\r\\Z中'" in sql
+    assert "_binary'raw\\0\\'\\\\x'" in sql
+    assert "_binary'ba\\''" in sql
+    assert "'2024-01-02 03:04:05.000067'" in sql
+    assert "'2024-01-02 03:04:05'" in sql
+    assert "'-47:59:56.543211'" in sql
+    assert "'-23999999976:00:00'" in sql
+    assert "'23999999999:59:59.999999'" in sql
+    assert "1.25e0" in sql
+    assert "12.340" in sql
+    assert sql.endswith(" ON DUPLICATE KEY UPDATE x=1")
+
+    # Small max_stmt_length forces splitting into two batches with postfix on each.
+    split = _format_executemany_batches(
+        b"INSERT INTO t VALUES ", tpl, b" ON DUPLICATE KEY UPDATE x=1", rows, 300, "utf8", False
+    )
+    assert len(split) == 2
+    assert all(b.startswith(b"INSERT INTO t VALUES ") for b in split)
+    assert all(b.endswith(b" ON DUPLICATE KEY UPDATE x=1") for b in split)
+
+    # NO_BACKSLASH_ESCAPES doubles single quotes for str.
+    nbe = _format_executemany_batches(
+        b"INSERT INTO t VALUES ", "(%s)", b"", [("a'\\b",)], 1024, "utf8", True
+    )
+    assert nbe == [b"INSERT INTO t VALUES ('a''\\b')"]
+
+    # Unsupported templates / encodings / inf / nan fall back or raise properly.
+    assert (
+        _format_executemany_batches(b"I ", "(%(a)s)", b"", [{"a": 1}], 1024, "utf8", False) is None
+    )
+    assert _format_executemany_batches(b"I ", "(%s)", b"", [(1,)], 1024, "latin1", False) is None
+    with pytest.raises(ProgrammingError):
+        _format_executemany_batches(b"I ", "(%s)", b"", [(float("inf"),)], 1024, "utf8", False)
+    with pytest.raises(ProgrammingError):
+        _format_executemany_batches(b"I ", "(%s)", b"", [(float("nan"),)], 1024, "utf8", False)

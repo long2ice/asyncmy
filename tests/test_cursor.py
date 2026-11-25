@@ -726,3 +726,56 @@ async def test_cached_cursor_respects_prepared_execute_hook(monkeypatch):
             assert calls == [(3,), (7,)]
     finally:
         await conn.ensure_closed()
+
+
+@pytest.mark.asyncio
+async def test_text_fast_path_cursor_and_dict_cursor_schema_change():
+    conn = await asyncmy.connect(**connection_kwargs)
+    try:
+        async with conn.cursor() as cursor:
+            await cursor.execute(
+                "CREATE TEMPORARY TABLE test.text_fast_path (id INT, v VARCHAR(32))"
+            )
+            await cursor.execute("CREATE TEMPORARY TABLE test.text_fast_path_b (id INT)")
+            await cursor.execute("INSERT INTO test.text_fast_path VALUES (1, 'a'), (2, 'b')")
+            await cursor.execute("INSERT INTO test.text_fast_path_b VALUES (1), (2)")
+            # Warm cache, then hit cached text fast path.
+            for expected in [(1, "a"), (2, "b"), (1, "a")]:
+                await cursor.execute(
+                    "SELECT id, v FROM test.text_fast_path WHERE id = %s", (expected[0],)
+                )
+                assert await cursor.fetchone() == expected
+
+        # DictCursor fast path + duplicate column name disambiguation + empty result.
+        async with conn.cursor(DictCursor) as cursor:
+            for _ in range(3):
+                await cursor.execute(
+                    "SELECT t1.id, t2.id, t1.v FROM test.text_fast_path t1 "
+                    "JOIN test.text_fast_path_b t2 ON t1.id = t2.id WHERE t1.id = %s",
+                    (1,),
+                )
+                assert await cursor.fetchall() == [{"id": 1, "t2.id": 1, "v": "a"}]
+            await cursor.execute("SELECT id, v FROM test.text_fast_path WHERE id = %s", (999,))
+            assert await cursor.fetchall() == []
+
+        # Schema change alters column definition bytes, bypassing the old cache entry.
+        async with conn.cursor(DictCursor) as cursor:
+            await cursor.execute("ALTER TABLE test.text_fast_path ADD COLUMN extra INT DEFAULT 7")
+            await cursor.execute("SELECT * FROM test.text_fast_path WHERE id = %s", (1,))
+            assert await cursor.fetchall() == [{"id": 1, "v": "a", "extra": 7}]
+
+        # Monkeypatched Connection._write_bytes must still be respected on text fast path.
+        calls = []
+        original = conn._write_bytes
+
+        def spy_write(data):
+            calls.append(data)
+            return original(data)
+
+        conn._write_bytes = spy_write
+        async with conn.cursor() as cursor:
+            await cursor.execute("SELECT id FROM test.text_fast_path WHERE id = %s", (1,))
+            assert await cursor.fetchone() == (1,)
+        assert len(calls) == 1
+    finally:
+        await conn.ensure_closed()

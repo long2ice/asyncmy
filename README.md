@@ -9,7 +9,7 @@
 
 ## Features
 
-- 🚀 **Fast Python queries** — large-result fetching takes about half mysqlclient's time; pooled queries deliver 3.6× aiomysql's throughput in the [local benchmark](#benchmark)
+- 🚀 **Fast Python queries** — large-result fetching takes about half mysqlclient's time; pooled queries deliver 5.6× aiomysql's throughput and batch inserts lead all tested Python drivers in the [local benchmark](#benchmark)
 - 🔌 **Drop-in aiomysql replacement** — same API, same cursors (`DictCursor`, `SSCursor`), same pool semantics
 - 🧬 **Server-side prepared statements** (binary protocol) via `conn.prepare()` or cached regular Cursor calls — numeric and temporal values decode directly from their binary representation
 - ⚡ **C-speed protocol core** — rows are parsed in bulk from the receive buffer in a single C loop, values decode straight from wire bytes via the CPython C-API
@@ -229,7 +229,7 @@ if __name__ == "__main__":
 
 ## Benchmark
 
-Measured on **2026-10-22** against local MySQL over **TCP**. The Python-driver
+Measured on **2026-11-25** against local MySQL over **TCP**. The Python-driver
 suite and cross-language suite use different workloads and sampling methods;
 each comparison below keeps those settings explicit. All times are in
 **milliseconds**, lower is better.
@@ -244,23 +244,23 @@ query returns 33,334 of them.
 
 | Workload | asyncmy | mysqlclient | PyMySQL | aiomysql |
 | --- | ---: | ---: | ---: | ---: |
-| Large result set, 33,334 mixed-type rows | **29** | 60 | 112 | 122 |
-| 50 concurrent queries, one connection each | **6** | — | — | 8 |
-| 2,000 pooled queries, 5–20 connections | **56** | — | — | 202 |
-| Batch insert, 10,000 rows | **123** | 145 | 138 | **123** |
+| Large result set, 33,334 mixed-type rows | **29** | 60 | 111 | 118 |
+| 50 concurrent queries, one connection each | **5** | — | — | 8 |
+| 2,000 pooled queries, 5–20 connections | **35** | — | — | 198 |
+| Batch insert, 10,000 rows | **67** | 94 | 88 | 102 |
 
-asyncmy leads on result fetching, concurrent queries and pooled queries. Large
-result fetching takes about half mysqlclient's time; pooled queries deliver
-about **3.6× aiomysql's throughput**. Batch insertion is effectively tied with
-aiomysql in this run. Times are rounded to one millisecond; `—` means the
-suite does not measure that combination.
+asyncmy leads all four workloads. Large result fetching takes about half
+mysqlclient's time; pooled queries deliver about **5.6× aiomysql's throughput**
+(56,628 vs 10,121 queries/s); batch insertion runs at **148,929 rows/s** (about
+1.3× PyMySQL and 1.5× aiomysql). Times are rounded to one millisecond; `—` means
+the suite does not measure that combination.
 
 The asyncmy column uses the text protocol. Its separate binary large-result
 case took **30 ms** with `stmt_cache_size=16`. This schema's text and binary
 results are close; the cross-language suite below also measures integer-heavy
 and mixed-type scans separately.
 
-Versions: asyncmy **0.2.17** (working tree), mysqlclient **2.3.0**, PyMySQL
+Versions: asyncmy **0.2.19rc1** (working tree), mysqlclient **2.3.0**, PyMySQL
 **1.2.3**, aiomysql **0.3.2**. See the [Python benchmark guide](./benchmark/README.md#python-driver-suite)
 for workloads and commands, and the [recorded run](./benchmark/python-results.json)
 for the console-reported timings and settings.
@@ -276,37 +276,40 @@ order. Every measured sample is retained.
 
 | Workload | asyncmy asyncio | asyncmy uvloop | Go | Rust |
 | --- | ---: | ---: | ---: | ---: |
-| 50k rows × 8 integer columns, text | **12.94** | 13.95 | 19.12 | 18.01 |
-| 50k rows × 8 integer columns, binary | 9.97 | 9.74 | 12.64 | **9.60** |
-| 50k rows × 10 mixed columns, text | 36.71 | 41.86 | 33.73 | **33.41** |
-| 50k rows × 10 mixed columns, binary | 23.56 | 23.55 | 25.49 | **20.43** |
-| Pooled 20×200 point queries, text | 51.24 | 45.03 | 34.87 | **33.49** |
-| Pooled 20×200 point queries, binary | 34.68 | **31.11** | 32.06 | 34.12 |
+| 50k rows × 8 integer columns, text | **12.81** | 14.11 | 18.74 | 15.56 |
+| 50k rows × 8 integer columns, binary | 9.79 | 9.61 | 12.46 | **8.99** |
+| 50k rows × 10 mixed columns, text | 36.94 | 42.53 | 33.62 | **33.20** |
+| 50k rows × 10 mixed columns, binary | 23.26 | 23.20 | 25.18 | **20.39** |
+| Pooled 20×200 point queries, text | 34.60 | **29.99** | 36.15 | 35.13 |
+| Pooled 20×200 point queries, binary | 33.85 | **28.61** | 31.17 | 34.95 |
 
-For **pooled binary point queries**, the ordinary Cursor API with uvloop,
-`stmt_cache_size=32` and `autocommit=True` leads both native drivers:
+For **pooled point queries** (both text and binary), the ordinary Cursor API
+with uvloop and `autocommit=True` leads both native drivers:
 
 ![asyncmy with uvloop binary point-query throughput advantage over Go and Rust, with 95% confidence intervals](./images/benchmark-point-binary.svg)
 
-| Compared with | Mean per-round throughput advantage | 95% confidence interval |
-| --- | ---: | ---: |
-| Go | **+2.79%** | +1.65% to +3.88% |
-| Rust | **+9.37%** | +8.64% to +10.22% |
+| Workload (asyncmy uvloop vs native) | Mean per-round throughput advantage | 95% confidence interval | Round wins |
+| --- | ---: | ---: | ---: |
+| Pooled text point queries vs Go | **+18.90%** | +17.01% to +20.27% | 72/72 |
+| Pooled text point queries vs Rust | **+15.71%** | +12.61% to +18.02% | 69/72 |
+| Pooled binary point queries vs Go | **+7.61%** | +6.41% to +8.83% | 68/72 |
+| Pooled binary point queries vs Rust | **+20.42%** | +16.84% to +22.92% | 72/72 |
 
 These percentages average per-round throughput ratios; they are calculated
-separately from the aggregate median times above. Individual rounds overlap:
-asyncmy wins 50/72 round medians against Go and 71/72 against Rust. Its average
-advantage is positive in 11/12 balanced six-round blocks against Go and all
-12 against Rust. The confidence intervals resample those complete blocks.
+separately from the aggregate median times above. Every one of the 12 balanced
+six-round blocks favors asyncmy + uvloop against both Go and Rust on both text
+and binary point queries. The confidence intervals resample those complete
+blocks.
 
-Both native drivers lead on text point queries, and Rust leads on mixed scans.
-The results show where asyncmy leads and where further optimization remains.
+Rust leads on binary integer scans and mixed scans (where Python constructs
+`Decimal` objects while Go/Rust keep strings). The results show where asyncmy
+leads and where further optimization remains.
 
 ### Environment and measurement details
 
 | Component | Version / setting |
 | --- | --- |
-| Hardware / OS | Apple M4 Max / macOS 27.0.1 arm64 |
+| Hardware / OS | Apple M4 Max / macOS 27.2.1 arm64 |
 | MySQL | 26.10.0, TCP `127.0.0.1:3306` |
 | CPython / Cython | 3.15.1 / 3.3.0 |
 | uvloop | 0.23.0 |

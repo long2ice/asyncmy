@@ -151,8 +151,7 @@ def python_chart(data: dict) -> Figure:
     footer(
         fig,
         data["environment"],
-        "Independent zero-based axes · only measured combinations shown · "
-        "rounded to 1 ms; batch insert is effectively tied",
+        "Independent zero-based axes · only measured combinations shown · rounded to 1 ms",
     )
     return fig
 

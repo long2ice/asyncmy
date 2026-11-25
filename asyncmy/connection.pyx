@@ -21,7 +21,7 @@ from typing import Optional, Type
 from cpython.bytearray cimport PyByteArray_AS_STRING
 from cpython.bytes cimport PyBytes_FromStringAndSize, PyBytes_AS_STRING
 from cpython.object cimport PyObject_GenericGetDict
-from libc.string cimport memcpy
+from libc.string cimport memcpy, memmove
 
 from asyncmy import auth, converters, errors
 from asyncmy._compat cimport _class_method_is
@@ -33,7 +33,16 @@ from asyncmy.protocol import (EOFPacketWrapper, FieldDescriptorPacket,
                               OKPacketWrapper,
                               pack_bulk_rows, parse_binary_rows_from_buffer,
                               parse_rows_from_buffer, skip_packets_from_buffer)
-from asyncmy.protocol cimport _send_scalar_execute, _parse_cached_binary_response, pack_binary_params, _pack_execute_packet
+from asyncmy.protocol cimport (
+    _pack_execute_packet,
+    _parse_cached_binary_response,
+    _parse_row_as_dict,
+    _parse_rows_from_buffer_as_dicts,
+    _parse_text_response_from_buffer,
+    _send_query_packet,
+    _send_scalar_execute,
+    pack_binary_params,
+)
 
 from .constants.CLIENT import (CAPABILITIES, CONNECT_ATTRS, CONNECT_WITH_DB,
                                DEPRECATE_EOF, LOCAL_FILES, MULTI_RESULTS,
@@ -213,9 +222,13 @@ class _MySQLProtocol(_ProtocolState, asyncio.BufferedProtocol):
         cdef bytearray buffer = state.buffer, grown
         cdef Py_ssize_t length = state.length, pos = state.pos, grow
         if pos:
-            # compact the consumed prefix
+            # compact the consumed prefix in-place without a temporary slice copy
             if length > pos:
-                buffer[0: length - pos] = buffer[pos:length]
+                memmove(
+                    PyByteArray_AS_STRING(buffer),
+                    PyByteArray_AS_STRING(buffer) + pos,
+                    length - pos,
+                )
             length -= pos
             state.length = length
             state.pos = 0
@@ -543,6 +556,7 @@ class Connection(_ConnectionState):
         # specified autocommit mode. None means use server default.
         self.autocommit_mode = autocommit
 
+        self._default_encoders = conv is None
         if conv is None:
             conv = converters.conversions
 
@@ -568,6 +582,8 @@ class Connection(_ConnectionState):
         self._connected = False
         self._proto: Optional[_MySQLProtocol] = None
         self._transport = None
+        self._write_transport = None
+        self._write_fd = -1
         self._close_reason = None
         self._deprecate_eof = False  # negotiated during the handshake
         self._mariadb_ext_caps = 0  # MariaDB extended capabilities
@@ -578,6 +594,8 @@ class Connection(_ConnectionState):
         self._stmt_cache_size = int(stmt_cache_size)
         self._stmt_cache = {}  # insertion-ordered; LRU via re-insertion
         self._unpreparable = set()
+        self._text_meta_cache = {}  # raw column-def wire bytes -> (wire, desc, convs)
+        self._last_text_meta = None
 
         self._auth_plugin_name = ""
 
@@ -632,6 +650,8 @@ class Connection(_ConnectionState):
         if self._transport is not None:
             self._transport.close()
         self._transport = None
+        self._write_transport = None
+        self._write_fd = -1
         self._connected = False
 
     @property
@@ -836,6 +856,112 @@ class Connection(_ConnectionState):
         return self._affected_rows
 
     @cython.locals(self=_ConnectionState)
+    async def _execute_text_cursor(self, sql, cursor, bint as_dicts=False):
+        """Fast path for ordinary buffered Cursor / DictCursor text queries.
+
+        Sends small COM_QUERY packets from a stack buffer and parses complete
+        cached-metadata SELECT responses straight out of the receive buffer,
+        skipping intermediate MySQLResult / Packet allocations.
+        Returns True when ``cursor`` is already populated, False otherwise.
+        """
+        cdef _ProtocolState proto
+        cdef MySQLResult prev = self._result
+        cdef tuple complete
+        cdef bint sent = False
+        cdef bytes encoded_sql
+        cdef Py_ssize_t plen
+
+        if (
+            type(self) is not Connection
+            or (prev is not None and (prev.unbuffered_active or prev.has_next))
+            or not _class_method_is(self, "query", _original_connection_query)
+            or not _class_method_is(self, "_execute_command", _original_execute_command)
+            or not _class_method_is(self, "_write_bytes", _original_write_bytes)
+            or "query" in <dict> PyObject_GenericGetDict(self, NULL)
+            or "_execute_command" in <dict> PyObject_GenericGetDict(self, NULL)
+            or "_write_bytes" in <dict> PyObject_GenericGetDict(self, NULL)
+        ):
+            await self.query(sql)
+            return False
+
+        if not self._connected:
+            raise errors.InterfaceError(0, self._close_reason or "Not connected")
+        self._result = None
+
+        transport = self._transport
+        if (
+            self._write_fd >= 0
+            and transport is self._write_transport
+            and not transport.is_closing()
+            and transport.get_write_buffer_size() == 0
+        ):
+            remaining = _send_query_packet(sql, self._encoding, self._write_fd)
+            if remaining is not False:
+                if remaining is not None:
+                    self._write_bytes(remaining)
+                sent = True
+                self._next_seq_id = 1
+
+        if not sent:
+            if isinstance(sql, str):
+                encoded_sql = sql.encode(self._encoding, "surrogateescape")
+            else:
+                encoded_sql = sql
+            plen = len(encoded_sql) + 1
+            if plen < 8192:
+                self._write_bytes(iB.pack(plen, COM_QUERY) + encoded_sql)
+                self._next_seq_id = 1
+            else:
+                await self._execute_command(COM_QUERY, encoded_sql)
+
+        if self._last_text_meta is not None or self._text_meta_cache:
+            proto = _get_protocol_state(self)
+            if proto.length - proto.pos < 4:
+                if self._read_timeout:
+                    await self._fill_buffer(4)
+                else:
+                    try:
+                        while proto.length - proto.pos < 4:
+                            if proto.eof or proto.exc is not None:
+                                await self._fill_buffer(4)
+                            waiter = self._loop.create_future()
+                            proto._read_waiter = waiter
+                            try:
+                                await waiter
+                            finally:
+                                if proto._read_waiter is waiter:
+                                    proto._read_waiter = None
+                    except asyncio.CancelledError:
+                        self._close_on_cancel()
+                        raise
+            complete = _parse_text_response_from_buffer(
+                proto.buffer,
+                proto.pos,
+                proto.length,
+                self._next_seq_id,
+                self._deprecate_eof,
+                self._last_text_meta,
+                self._text_meta_cache,
+                as_dicts,
+            )
+            if complete is not None and not complete[4] and not complete[5]:
+                proto.pos = complete[0]
+                self._next_seq_id = complete[1]
+                self._last_text_meta = complete[7]
+                if as_dicts:
+                    cursor._set_cached_dict_rows(complete[2], complete[6], complete[7][3])
+                else:
+                    cursor._set_cached_rows(complete[2], complete[6])
+                self._result = None
+                self._affected_rows = len(complete[2])
+                if complete[3]:
+                    self.server_status = complete[3]
+                return True
+
+        await self._read_query_result(unbuffered=False, as_dicts=as_dicts)
+        return False
+
+    @cython.locals(self=_ConnectionState)
     async def next_result(self, unbuffered=False):
         await self._read_query_result(unbuffered=unbuffered)
         return self._affected_rows
@@ -961,6 +1087,8 @@ class Connection(_ConnectionState):
         await self.read_packet()
         self._charset = charset
         self._encoding = encoding
+        self._text_meta_cache.clear()
+        self._last_text_meta = None
 
     @cython.locals(self=_ConnectionState)
     async def _refresh_password(self):
@@ -989,6 +1117,10 @@ class Connection(_ConnectionState):
             self._close_reason = None
             # statement ids do not survive reconnects
             self._stmt_cache.clear()
+            self._text_meta_cache.clear()
+            self._last_text_meta = None
+            self._write_fd = -1
+            self._write_transport = None
             self._deprecate_eof = False
             self._mariadb_ext_caps = 0
             self._bulk_supported = False
@@ -1059,6 +1191,19 @@ class Connection(_ConnectionState):
             await self._request_authentication()
 
             self._connected = True
+            self._write_fd = -1
+            self._write_transport = self._transport
+            if (
+                sys.platform != "win32"
+                and type(self) is Connection
+                and self._write_transport is not None
+                and not self._ssl_context
+                and not self._tls_established
+                and self._write_transport.get_extra_info("ssl_object") is None
+            ):
+                raw_sock = self._write_transport.get_extra_info("socket")
+                if raw_sock is not None:
+                    self._write_fd = raw_sock.fileno()
 
             if self._sql_mode is not None:
                 await self.query("SET sql_mode=%s" % (self._sql_mode,))
@@ -1232,8 +1377,9 @@ class Connection(_ConnectionState):
             ) from exc
 
     @cython.locals(self=_ConnectionState)
-    async def _read_query_result(self, unbuffered=False):
+    async def _read_query_result(self, unbuffered=False, bint as_dicts=False):
         self._result = None
+        cdef MySQLResult result
         if unbuffered:
             try:
                 result = MySQLResult(self)
@@ -1244,6 +1390,7 @@ class Connection(_ConnectionState):
                 raise
         else:
             result = MySQLResult(self)
+            result._as_dicts = as_dicts
             await result.read()
         self._result = result
         self._affected_rows = result.affected_rows
@@ -1655,6 +1802,8 @@ class Connection(_ConnectionState):
 
 cdef object _original_write_bytes = Connection._write_bytes
 cdef object _original_execute_command = Connection._execute_command
+cdef object _original_connection_query = Connection.query
+cdef object _original_fill_buffer = Connection._fill_buffer
 
 
 cdef class _PreparedState:
@@ -1925,8 +2074,11 @@ cdef class MySQLResult:
         self.field_count = 0
         self.description = None
         self.rows = None
+        self._dict_rows = None
+        self._dict_fields = None
         self.has_next = False
         self.unbuffered_active = False
+        self._as_dicts = False
 
     def __del__(self):
         if self.unbuffered_active and self.connection is not None:
@@ -1943,7 +2095,7 @@ cdef class MySQLResult:
             elif first_packet.is_load_local_packet():
                 await self._read_load_local_packet(first_packet)
             else:
-                await self._read_result_packet(first_packet)
+                await self._read_result_packet(first_packet, self._as_dicts)
         finally:
             self.connection = None
 
@@ -2023,8 +2175,16 @@ cdef class MySQLResult:
     async def _read_binary_rowdata_packet(self):
         cdef list rows = []
         cdef tuple specs = self._binary_colspecs
+        cdef Py_ssize_t avail, payload_len, need
+        cdef const unsigned char *base
         conn = self.connection
         cdef _ProtocolState proto = _get_protocol_state(conn)
+        cdef bint fast_wait = (
+            not conn._read_timeout
+            and type(conn) is Connection
+            and _class_method_is(conn, "_fill_buffer", _original_fill_buffer)
+            and "_fill_buffer" not in <dict> PyObject_GenericGetDict(conn, NULL)
+        )
         while True:
             new_pos, new_seq = parse_binary_rows_from_buffer(
                 proto.buffer, proto.pos, proto.length, specs, conn._next_seq_id, rows,
@@ -2032,6 +2192,38 @@ cdef class MySQLResult:
             )
             proto.pos = new_pos
             conn._next_seq_id = new_seq
+            avail = proto.length - proto.pos
+            need = 0
+            if avail < 4:
+                need = 4
+            else:
+                base = <const unsigned char *> PyByteArray_AS_STRING(proto.buffer) + proto.pos
+                payload_len = base[0] | (base[1] << 8) | (base[2] << 16)
+                if (
+                    base[3] == conn._next_seq_id
+                    and 0 < payload_len < MAX_PACKET_LEN
+                    and avail - 4 < payload_len
+                ):
+                    need = 4 + payload_len
+            if need:
+                if fast_wait:
+                    try:
+                        while proto.length - proto.pos < need:
+                            if proto.eof or proto.exc is not None:
+                                await conn._fill_buffer(need)
+                            waiter = conn._loop.create_future()
+                            proto._read_waiter = waiter
+                            try:
+                                await waiter
+                            finally:
+                                if proto._read_waiter is waiter:
+                                    proto._read_waiter = None
+                    except asyncio.CancelledError:
+                        conn._close_on_cancel()
+                        raise
+                else:
+                    await conn._fill_buffer(need)
+                continue
             packet = await conn.read_packet()
             if self._check_packet_is_eof(packet):
                 self.connection = None
@@ -2059,7 +2251,7 @@ cdef class MySQLResult:
             self.connection = None
         else:
             self.field_count = first_packet.read_length_encoded_integer()
-            await self._get_descriptions()
+            await self._get_descriptions(False)
 
             # Apparently, MySQLdb picks this number because it's the maximum
             # value of a 64bit unsigned integer. Since we're emulating MySQLdb,
@@ -2119,10 +2311,10 @@ cdef class MySQLResult:
         self.has_next = wp.has_next
         return True
 
-    async def _read_result_packet(self, first_packet):
+    async def _read_result_packet(self, first_packet, bint as_dicts=False):
         self.field_count = first_packet.read_length_encoded_integer()
-        await self._get_descriptions()
-        await self._read_rowdata_packet()
+        await self._get_descriptions(False)
+        await self._read_rowdata_packet(as_dicts)
 
     async def _read_rowdata_packet_unbuffered(self):
         # Check if in an active query
@@ -2201,47 +2393,135 @@ cdef class MySQLResult:
                 self.unbuffered_active = False
                 self.connection = None  # release reference to kill cyclic reference.
 
-    async def _read_rowdata_packet(self):
+    async def _read_rowdata_packet(self, bint as_dicts=False):
         """Read a rowdata packet for each data row in the result set."""
         cdef list rows = []
         cdef tuple convs = self._row_converters
+        cdef list dict_fields = self._dict_fields if as_dicts else None
+        cdef Py_ssize_t avail, payload_len, need
+        cdef const unsigned char *base
+        cdef bytes raw_row
         conn = self.connection
         cdef _ProtocolState proto = _get_protocol_state(conn)
+        cdef bint fast_wait = (
+            not conn._read_timeout
+            and type(conn) is Connection
+            and _class_method_is(conn, "_fill_buffer", _original_fill_buffer)
+            and "_fill_buffer" not in <dict> PyObject_GenericGetDict(conn, NULL)
+        )
         while True:
             # Bulk-parse every complete row packet already sitting in the
             # receive buffer without touching the event loop.
-            new_pos, new_seq = parse_rows_from_buffer(
-                proto.buffer, proto.pos, proto.length, convs, conn._next_seq_id, rows,
-                self._deprecate_eof,
-            )
+            if dict_fields is not None:
+                new_pos, new_seq = _parse_rows_from_buffer_as_dicts(
+                    proto.buffer, proto.pos, proto.length, convs, dict_fields,
+                    conn._next_seq_id, rows, self._deprecate_eof,
+                )
+            else:
+                new_pos, new_seq = parse_rows_from_buffer(
+                    proto.buffer, proto.pos, proto.length, convs, conn._next_seq_id, rows,
+                    self._deprecate_eof,
+                )
             proto.pos = new_pos
             conn._next_seq_id = new_seq
-            # Whatever stopped the bulk parser (incomplete data, EOF, error,
-            # jumbo packet) goes through the generic packet reader.
+            # Pull more bytes directly when stopped by an incomplete normal
+            # packet, avoiding a MysqlPacket allocation on every read boundary.
+            avail = proto.length - proto.pos
+            need = 0
+            if avail < 4:
+                need = 4
+            else:
+                base = <const unsigned char *> PyByteArray_AS_STRING(proto.buffer) + proto.pos
+                payload_len = base[0] | (base[1] << 8) | (base[2] << 16)
+                if (
+                    base[3] == conn._next_seq_id
+                    and 0 < payload_len < MAX_PACKET_LEN
+                    and avail - 4 < payload_len
+                ):
+                    need = 4 + payload_len
+            if need:
+                if fast_wait:
+                    try:
+                        while proto.length - proto.pos < need:
+                            if proto.eof or proto.exc is not None:
+                                await conn._fill_buffer(need)
+                            waiter = conn._loop.create_future()
+                            proto._read_waiter = waiter
+                            try:
+                                await waiter
+                            finally:
+                                if proto._read_waiter is waiter:
+                                    proto._read_waiter = None
+                    except asyncio.CancelledError:
+                        conn._close_on_cancel()
+                        raise
+                else:
+                    await conn._fill_buffer(need)
+                continue
+            # Whatever stopped the bulk parser (EOF, error, sequence mismatch,
+            # empty or jumbo packet) goes through the generic packet reader.
             packet = await conn.read_packet()
             if self._check_packet_is_eof(packet):
                 self.connection = None  # release reference to kill cyclic reference.
                 break
-            rows.append(packet.read_row(convs))
+            if dict_fields is not None:
+                raw_row = packet.get_all_data()
+                rows.append(
+                    _parse_row_as_dict(
+                        <const unsigned char *> PyBytes_AS_STRING(raw_row),
+                        len(raw_row),
+                        convs,
+                        dict_fields,
+                    )
+                )
+            else:
+                rows.append(packet.read_row(convs))
 
         self.affected_rows = len(rows)
-        self.rows = tuple(rows)
+        if dict_fields is not None:
+            self._dict_rows = rows
+            self.rows = ()
+        else:
+            self.rows = tuple(rows)
 
     cdef _read_row_from_packet(self, packet: MysqlPacket):
         return packet.read_row(self._row_converters)
 
-    async def _get_descriptions(self):
+    async def _get_descriptions(self, bint build_binary_specs=True):
         """Read a column descriptor packet for each column in the result."""
         self.fields = []
         self.converters = []
-        cdef list binary_specs = []
-        use_unicode = self.connection._use_unicode
-        conn_encoding = self.connection._encoding
+        cdef list binary_specs = [] if build_binary_specs else None
+        cdef _ConnectionState conn = self.connection
+        cdef bint can_cache_meta = (
+            not build_binary_specs
+            and conn._next_seq_id == 2
+            and 1 <= self.field_count < 251
+            and len(conn._text_meta_cache) < 64
+        )
+        cdef bytearray meta_buf = bytearray() if can_cache_meta else None
+        cdef bytes raw_field, meta_wire
+        cdef Py_ssize_t raw_len
+        cdef unsigned int seq = 2
+        use_unicode = conn._use_unicode
+        conn_encoding = conn._encoding
         description = []
 
         for i in range(self.field_count):
-            field = await self.connection.read_packet(FieldDescriptorPacket)
+            field = await conn.read_packet(FieldDescriptorPacket)
             self.fields.append(field)
+            if can_cache_meta:
+                raw_field = field.get_all_data()
+                raw_len = len(raw_field)
+                if raw_len < MAX_PACKET_LEN:
+                    meta_buf.append(raw_len & 0xFF)
+                    meta_buf.append((raw_len >> 8) & 0xFF)
+                    meta_buf.append((raw_len >> 16) & 0xFF)
+                    meta_buf.append(seq & 0xFF)
+                    meta_buf += raw_field
+                    seq = (seq + 1) & 0xFF
+                else:
+                    can_cache_meta = False
             description.append(field.description())
             field_type = field.type_code
             if use_unicode:
@@ -2263,7 +2543,7 @@ cdef class MySQLResult:
                     encoding = "ascii"
             else:
                 encoding = None
-            converter = self.connection._decoders.get(field_type)
+            converter = conn._decoders.get(field_type)
             if converter is converters.through:
                 converter = None
             if encoding == "ascii" and converter in _BYTES_SAFE_DECODERS:
@@ -2279,16 +2559,31 @@ cdef class MySQLResult:
             else:
                 code = 3
             self.converters.append((code, encoding, converter))
-            binary_specs.append(
-                (field_type, bool(field.flags & 32), code, encoding, converter)  # 32: UNSIGNED
-            )
+            if build_binary_specs:
+                binary_specs.append(
+                    (field_type, bool(field.flags & 32), code, encoding, converter)  # 32: UNSIGNED
+                )
 
         self._row_converters = tuple(self.converters)
-        self._binary_colspecs = tuple(binary_specs)
+        if build_binary_specs:
+            self._binary_colspecs = tuple(binary_specs)
         if not self._deprecate_eof:
-            eof_packet = await self.connection.read_packet()
+            eof_packet = await conn.read_packet()
             assert eof_packet.is_eof_packet(), "Protocol error, expecting EOF"
         self.description = tuple(description)
+        cdef list dict_fields = []
+        if self.fields:
+            for f in self.fields:
+                name = f.name
+                if name in dict_fields:
+                    name = f.table_name + "." + name
+                dict_fields.append(name)
+        self._dict_fields = dict_fields
+        if can_cache_meta:
+            meta_wire = bytes(meta_buf)
+            entry = (meta_wire, self.description, self._row_converters, dict_fields)
+            conn._text_meta_cache[meta_wire] = entry
+            conn._last_text_meta = entry
 
 
 class LoadLocalFile:

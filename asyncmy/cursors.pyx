@@ -11,8 +11,34 @@ import re
 import time
 import typing
 
-from . import errors
+from cpython.dict cimport PyDict_SetItem
+from cpython.list cimport PyList_GET_ITEM, PyList_New, PyList_SET_ITEM
+from cpython.object cimport PyObject
+from cpython.ref cimport Py_INCREF
+from cpython.tuple cimport PyTuple_GET_ITEM, PyTuple_New, PyTuple_SET_ITEM
+
+from . import converters, errors
+from ._compat cimport _class_method_is
 from .connection cimport _ConnectionState
+from .constants.SERVER_STATUS import SERVER_STATUS_NO_BACKSLASH_ESCAPES
+from .protocol cimport _format_executemany_batches
+
+cdef extern from *:
+    """
+    static inline PyObject* asyncmy_dict_new_presized(Py_ssize_t minused) {
+    #if CYTHON_COMPILING_IN_CPYTHON && !defined(Py_LIMITED_API)
+        return _PyDict_NewPresized(minused);
+    #else
+        return PyDict_New();
+    #endif
+    }
+    """
+    dict asyncmy_dict_new_presized(Py_ssize_t minused)
+
+cdef dict _DEFAULT_ENCODERS = {
+    k: v for (k, v) in converters.conversions.items() if type(k) is not int
+}
+cdef object _escape_string = converters.escape_string
 
 #: Regular expression for :meth:`Cursor.executemany`.
 #: executemany only supports simple bulk insert.
@@ -170,6 +196,15 @@ cdef class Cursor:
         self.rownumber = 0
         self.lastrowid = 0
 
+    cpdef _set_cached_dict_rows(self, list rows, tuple description, list fields):
+        self._result = None
+        self._rows = rows
+        self.description = description
+        self._fields = fields
+        self.rowcount = len(rows)
+        self.rownumber = 0
+        self.lastrowid = 0
+
     cpdef _conv_row(self, row):
         return row
 
@@ -208,7 +243,40 @@ cdef class Cursor:
         return x
 
     def _escape_args(self, args, conn):
-        if isinstance(args, (tuple, list)):
+        cdef Py_ssize_t n, i
+        cdef tuple out
+        cdef object arg, escaped
+        cdef bint fast_esc
+        if type(args) is tuple or type(args) is list:
+            n = len(args)
+            out = PyTuple_New(n)
+            fast_esc = (
+                isinstance(conn, _ConnectionState)
+                and (<_ConnectionState> conn)._default_encoders
+                and not ((<_ConnectionState> conn).server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES)
+            )
+            if fast_esc:
+                for i in range(n):
+                    arg = args[i]
+                    if type(arg) is int:
+                        escaped = str(arg)
+                    elif type(arg) is str:
+                        escaped = "'" + _escape_string(arg) + "'"
+                    elif arg is None:
+                        escaped = "NULL"
+                    elif type(arg) is bool:
+                        escaped = "1" if arg else "0"
+                    else:
+                        escaped = conn.literal(arg)
+                    Py_INCREF(escaped)
+                    PyTuple_SET_ITEM(out, i, escaped)
+                return out
+            for i in range(n):
+                escaped = conn.literal(args[i])
+                Py_INCREF(escaped)
+                PyTuple_SET_ITEM(out, i, escaped)
+            return out
+        elif isinstance(args, (tuple, list)):
             return tuple(conn.literal(arg) for arg in args)
         elif isinstance(args, dict):
             return {key: conn.literal(val) for (key, val) in args.items()}
@@ -300,6 +368,41 @@ cdef class Cursor:
                 return self.rowcount
 
         query = self.mogrify(query, args)
+        if type(self) is Cursor and _class_method_is(self, "_query", _original_cursor_query):
+            observed = self._observed()
+            if observed:
+                start = time.time()
+            self._clear_result()
+            ready = await conn._execute_text_cursor(query, self, False)
+            self._executed = query
+            if not ready and not self._get_result_now(conn):
+                await self._do_get_result()
+            if observed:
+                self._report(query, start)
+            return self.rowcount
+
+        if (
+            type(self) is DictCursor
+            and self.dict_type is dict
+            and DictCursor._query is _original_cursor_query
+            and DictCursor._do_get_result is _original_dict_do_get_result
+            and DictCursor._conv_row is _original_dict_conv_row
+            and "_query" not in self.__dict__
+            and "_do_get_result" not in self.__dict__
+            and "_conv_row" not in self.__dict__
+        ):
+            observed = self._observed()
+            if observed:
+                start = time.time()
+            self._clear_result()
+            ready = await conn._execute_text_cursor(query, self, True)
+            self._executed = query
+            if not ready:
+                await self._do_get_result()
+            if observed:
+                self._report(query, start)
+            return self.rowcount
+
         if self._observed():
             start = time.time()
             result = await self._query(query)
@@ -402,6 +505,32 @@ cdef class Cursor:
             prefix = prefix.encode(encoding)
         if isinstance(postfix, str):
             postfix = postfix.encode(encoding)
+
+        # C-level batch serializer for standard positional (%s) templates.
+        if (
+            isinstance(conn, _ConnectionState)
+            and (<_ConnectionState> conn)._default_encoders
+            and conn._encoders == _DEFAULT_ENCODERS
+            and isinstance(values, str)
+            and type(self)._escape_args is _original_escape_args
+        ):
+            batches = _format_executemany_batches(
+                prefix,
+                values,
+                postfix,
+                args,
+                max_stmt_length,
+                encoding,
+                bool((<_ConnectionState> conn).server_status & SERVER_STATUS_NO_BACKSLASH_ESCAPES),
+            )
+            if batches is not None:
+                if not batches:
+                    return 0
+                rows = 0
+                for sql in batches:
+                    rows += await self.execute(sql)
+                self.rowcount = rows
+                return rows
 
         # Process and encode all values upfront
         # This avoids repeated isinstance() checks and encoding in the loop
@@ -592,19 +721,60 @@ cdef class Cursor:
     ProgrammingError = errors.ProgrammingError
     NotSupportedError = errors.NotSupportedError
 
+cdef object _original_escape_args = Cursor._escape_args
+cdef object _original_cursor_query = Cursor._query
+
+
 cdef list _rows_to_dicts(rows, list fields):
     """C-level construction of dict rows for the common dict_type=dict case."""
     cdef:
+        Py_ssize_t nrows = len(rows)
         Py_ssize_t nf = len(fields)
-        Py_ssize_t j
-        list out = []
+        Py_ssize_t i, j
+        list out = PyList_New(nrows)
         dict d
-    for row in rows:
-        d = {}
-        for j in range(nf):
-            d[fields[j]] = row[j]
-        out.append(d)
+        object row
+        tuple trow
+        bint is_tuple = type(rows) is tuple
+    for i in range(nrows):
+        if is_tuple:
+            row = <object> PyTuple_GET_ITEM(rows, i)
+        else:
+            row = <object> PyList_GET_ITEM(rows, i)
+        d = asyncmy_dict_new_presized(nf)
+        if type(row) is tuple:
+            trow = <tuple> row
+            for j in range(nf):
+                PyDict_SetItem(
+                    d,
+                    <object> PyList_GET_ITEM(fields, j),
+                    <object> PyTuple_GET_ITEM(trow, j),
+                )
+        else:
+            for j in range(nf):
+                PyDict_SetItem(d, <object> PyList_GET_ITEM(fields, j), row[j])
+        Py_INCREF(d)
+        PyList_SET_ITEM(out, i, d)
     return out
+
+
+cdef dict _row_to_dict(object row, list fields):
+    cdef:
+        Py_ssize_t nf = len(fields), j
+        dict d = asyncmy_dict_new_presized(nf)
+        tuple trow
+    if type(row) is tuple:
+        trow = <tuple> row
+        for j in range(nf):
+            PyDict_SetItem(
+                d,
+                <object> PyList_GET_ITEM(fields, j),
+                <object> PyTuple_GET_ITEM(trow, j),
+            )
+    else:
+        for j in range(nf):
+            PyDict_SetItem(d, <object> PyList_GET_ITEM(fields, j), row[j])
+    return d
 
 
 class DictCursorMixin:
@@ -613,9 +783,14 @@ class DictCursorMixin:
 
     async def _do_get_result(self):
         await super(DictCursorMixin, self)._do_get_result()
+        result = self._result
+        if self.dict_type is dict and result._dict_rows is not None:
+            self._fields = result._dict_fields
+            self._rows = result._dict_rows
+            return
         fields = []
         if self.description:
-            for f in self._result.fields:
+            for f in result.fields:
                 name = f.name
                 if name in fields:
                     name = f.table_name + "." + name
@@ -631,6 +806,8 @@ class DictCursorMixin:
     def _conv_row(self, row):
         if row is None:
             return None
+        if self.dict_type is dict:
+            return _row_to_dict(row, self._fields)
         return self.dict_type(zip(self._fields, row))
 
 class DictCursor(DictCursorMixin, Cursor):
@@ -696,6 +873,14 @@ cdef class SSCursor(Cursor):
         generator version of this method.
         """
         cdef bint bulk = type(self) is SSCursor
+        cdef bint bulk_dict = (
+            type(self) is SSDictCursor
+            and self.dict_type is dict
+            and SSDictCursor.read_next is _original_ss_read_next
+            and SSDictCursor._conv_row is _original_dict_conv_row
+            and "read_next" not in self.__dict__
+            and "_conv_row" not in self.__dict__
+        )
         rows = []
         while True:
             row = await self.fetchone()
@@ -706,6 +891,11 @@ cdef class SSCursor(Cursor):
                 pending = self._result._take_pending_rows()
                 rows.extend(pending)
                 self.rownumber += len(pending)
+            elif bulk_dict:
+                pending = self._result._take_pending_rows()
+                if pending:
+                    rows.extend(_rows_to_dicts(pending, self._fields))
+                    self.rownumber += len(pending)
         return rows
 
     async def fetchmany(self, size=None):
@@ -726,6 +916,27 @@ cdef class SSCursor(Cursor):
                 pending = self._result._take_pending_rows(size - len(rows))
                 rows.extend(pending)
                 self.rownumber += len(pending)
+            return rows
+
+        if (
+            type(self) is SSDictCursor
+            and size > 1
+            and self.dict_type is dict
+            and SSDictCursor.read_next is _original_ss_read_next
+            and SSDictCursor._conv_row is _original_dict_conv_row
+            and "read_next" not in self.__dict__
+            and "_conv_row" not in self.__dict__
+        ):
+            while len(rows) < size:
+                row = await self.read_next()
+                if row is None:
+                    break
+                rows.append(row)
+                self.rownumber += 1
+                pending = self._result._take_pending_rows(size - len(rows))
+                if pending:
+                    rows.extend(_rows_to_dicts(pending, self._fields))
+                    self.rownumber += len(pending)
             return rows
 
         # Subclasses may override read_next() or _conv_row(). Keep invoking
@@ -761,3 +972,8 @@ cdef class SSCursor(Cursor):
 
 class SSDictCursor(DictCursorMixin, SSCursor):
     """An unbuffered cursor, which returns results as a dictionary"""
+
+
+cdef object _original_ss_read_next = SSCursor.read_next
+cdef object _original_dict_conv_row = DictCursorMixin._conv_row
+cdef object _original_dict_do_get_result = DictCursorMixin._do_get_result
