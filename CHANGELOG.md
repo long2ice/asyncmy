@@ -7,6 +7,17 @@
 - Fix `CLIENT_DEPRECATE_EOF` result-set termination misidentifying text-protocol rows whose
   first column is >= 16 MiB (which also begin with a `0xFE` 8-byte length prefix) as the
   terminating OK packet, which dropped rows and left the connection out of sync (#172).
+- Add a single-buffer cached-metadata fast path and stack-buffer `COM_QUERY` sending for
+  `Cursor` and `DictCursor` text queries, cutting pooled text point-query latency by ~33%
+  (beating both Go `go-sql-driver/mysql` and Rust `mysql_async` on uvloop).
+- Inline C parsers for `float`, `DATETIME`, `DATE`, and `TIME`/`timedelta` in text row
+  parsing, pre-compile text and binary column specs per batch, compact receive buffers
+  in-place with `memmove`, and avoid per-chunk `MysqlPacket` allocations on read boundaries.
+- Stream `DictCursor` rows directly into presized dicts during packet reads and enable C
+  bulk dict conversion in `SSDictCursor.fetchall()` / `fetchmany()`.
+- Add a C-level batch SQL serializer for positional `INSERT`/`REPLACE` `executemany()` calls
+  and cache `asyncio.Condition._lock` on `Pool` for faster uncontended checkouts.
+- Refresh the Python-driver and 72-round cross-language benchmark results and charts.
 
 ### 0.2.18
 

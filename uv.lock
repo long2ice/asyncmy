@@ -84,7 +84,7 @@ wheels = [
 
 [[package]]
 name = "asyncmy"
-version = "0.2.19rc1"
+version = "0.2.19rc2"
 source = { editable = "." }
 
 [package.dev-dependencies]
