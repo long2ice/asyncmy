@@ -2,6 +2,12 @@
 
 ## 0.2
 
+### 0.2.19
+
+- Fix `CLIENT_DEPRECATE_EOF` result-set termination misidentifying text-protocol rows whose
+  first column is >= 16 MiB (which also begin with a `0xFE` 8-byte length prefix) as the
+  terminating OK packet, which dropped rows and left the connection out of sync (#172).
+
 ### 0.2.18
 
 - Drop the traceback, context and cause of the exception kept by `connection_lost`. They
